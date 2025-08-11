@@ -1,3 +1,25 @@
 data
 output
+
+# MacOS system files
 .DS_store
+
+# Ignore Python virtual environments
+venv/
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Ignore VS Code settings
+.vscode/
+.vscode-test/
+
+# Ignore Python cache files and folders
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Ignore test cache
+*.pytest_cache/
