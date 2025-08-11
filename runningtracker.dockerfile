@@ -15,9 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /
 RUN pip install -r requirements.txt --no-cache-dir
 
 # Default command to run the parser with --help (change as needed)
-# CMD ["python", "tcx_parser.py", "-h"]
+# CMD ["python", "trainparser.py", "-h"]
 
-#run w mounted folder
-# docker run --rm -v /path/to/tcx/files:/data -v /path/to/output:/output tcx-parser /data/myworkout.tcx --output /output/results.xlsx --mongo
-# docker run --rm -v /path/to/tcx/files:/data -v /path/to/output:/output tcx-parser /data --output /output/results.xlsx --mongo
+#Build image
+# docker build -t tcx-parser:latest .
+
+#run w files or mounted folders
+# docker run --rm -v data:/data -v output:/output tcx-parser /data/myworkout.tcx --output /output/results.xlsx --mongo
+# docker run --rm -v data:/data -v output:/output tcx-parser /data --output /output/results.xlsx --mongo
 

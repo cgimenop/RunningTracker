@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  trainparser:
+    build:
+      context: .
+      dockerfile: runningtracker.dockerfile
+    image: trainparser:latest
+    container_name: trainparser
+    depends_on:
+      - mongodb
+    volumes:
+      - ./data:/data:ro       # Input TCX folder (read-only)
+      - ./output:/output           # Excel output folder
+    command: >
+      python /app/trainparser.py /data
+      --output /output/results.xlsx
+      --mongo
+      --mongo-uri mongodb://mongodb:27017
+
+volumes:
+  mongo_data:
