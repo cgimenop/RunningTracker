@@ -27,5 +27,24 @@ services:
       --mongo
       --mongo-uri mongodb://mongodb:27017
 
+  webapp:
+    build:
+      context: ./webapp
+      dockerfile: viewer.dockerfile
+    image: trainparser-webapp:latest
+    container_name: trainparser-webapp
+    depends_on:
+      - mongodb
+    ports:
+      - "5050:5000"
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - MONGO_URI=mongodb://mongodb:27017
+    volumes:
+      - ./webapp:/app  # Mount source for live reload
+
+
+
 volumes:
   mongo_data:
