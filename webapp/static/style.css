@@ -1,0 +1,89 @@
+body {
+    font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+    background: #f7f9fb;
+    color: #222;
+    margin: 0;
+    padding: 0;
+}
+
+h1, h2, h3 {
+    color: #2a4d69;
+    margin-top: 2em;
+    margin-bottom: 0.5em;
+}
+
+#chart-container {
+    width: 95vw;
+    max-width: 900px;
+    margin: 2em auto 2em auto;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(44,62,80,0.08);
+    padding: 2em 2em 1em 2em;
+}
+
+table {
+    width: 95vw;
+    max-width: 900px;
+    margin: 1.5em auto;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(44,62,80,0.08);
+    overflow: hidden;
+}
+
+th, td {
+    padding: 0.9em 1.2em;
+    text-align: left;
+}
+
+th {
+    background: #e9f1fa;
+    color: #2a4d69;
+    font-weight: 600;
+    border-bottom: 2px solid #b3c6e0;
+}
+
+tr:nth-child(even) td {
+    background: #f4f8fb;
+}
+
+tr:hover td {
+    background: #e3f0ff;
+}
+
+details {
+    margin: 1.5em auto;
+    width: 95vw;
+    max-width: 900px;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(44,62,80,0.06);
+    padding: 0.5em 1em 1em 1em;
+}
+
+summary {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #3867d6;
+    cursor: pointer;
+    outline: none;
+    padding: 0.5em 0;
+}
+
+summary::-webkit-details-marker {
+    color: #3867d6;
+}
+
+@media (max-width: 600px) {
+    #chart-container, table, details {
+        width: 99vw;
+        padding: 0.5em;
+    }
+    th, td {
+        padding: 0.5em 0.5em;
+        font-size: 0.98em;
+    }
+}
