@@ -44,11 +44,17 @@ def index():
     file_all_laps = {}
     file_valid_laps = {}
     for source, laps in grouped.items():
-        valid = [l for l in laps if l.get("LapDistance_m") is not None and float(l["LapDistance_m"]) >= 990]
+        try:
+            valid = [l for l in laps if l.get("LapDistance_m") is not None and float(l["LapDistance_m"]) >= 990]
+        except (ValueError, TypeError):
+            valid = []
         file_all_laps[source] = laps
         file_valid_laps[source] = valid
-        total_distance = sum(float(l.get("LapDistance_m", 0)) for l in laps)
-        total_time = sum(float(l.get("LapTotalTime_s", 0)) for l in laps)
+        try:
+            total_distance = sum(float(l.get("LapDistance_m", 0)) for l in laps)
+            total_time = sum(float(l.get("LapTotalTime_s", 0)) for l in laps)
+        except (ValueError, TypeError):
+            total_distance = total_time = 0
         total_time_formatted = format_seconds(total_time)
         file_summaries.append({
             "source": source,
@@ -59,13 +65,22 @@ def index():
         })
 
     # Valid laps for records (>=1km)
-    valid_laps = [lap for lap in all_laps if lap.get("LapDistance_m") is not None and float(lap["LapDistance_m"]) >= 990]
+    try:
+        valid_laps = [lap for lap in all_laps if lap.get("LapDistance_m") is not None and float(lap["LapDistance_m"]) >= 990]
+    except (ValueError, TypeError):
+        valid_laps = []
 
     # Records: fastest/slowest lap (by time), longest distance/time file
-    fastest_lap = min((lap for lap in valid_laps if lap.get("LapTotalTime_s") is not None), key=lambda x: float(x["LapTotalTime_s"]), default=None)
-    slowest_lap = max((lap for lap in valid_laps if lap.get("LapTotalTime_s") is not None), key=lambda x: float(x["LapTotalTime_s"]), default=None)
-    longest_distance_file = max(file_summaries, key=lambda x: x["total_distance"], default=None)
-    longest_time_file = max(file_summaries, key=lambda x: x["total_time"], default=None)
+    try:
+        fastest_lap = min((lap for lap in valid_laps if lap.get("LapTotalTime_s") is not None), key=lambda x: float(x["LapTotalTime_s"]), default=None)
+        slowest_lap = max((lap for lap in valid_laps if lap.get("LapTotalTime_s") is not None), key=lambda x: float(x["LapTotalTime_s"]), default=None)
+    except (ValueError, TypeError):
+        fastest_lap = slowest_lap = None
+    try:
+        longest_distance_file = max(file_summaries, key=lambda x: x["total_distance"], default=None)
+        longest_time_file = max(file_summaries, key=lambda x: x["total_time"], default=None)
+    except (ValueError, TypeError):
+        longest_distance_file = longest_time_file = None
 
     # Detailed data
     detailed_data = list(db["detailed"].find({}, {"_id": 0}))

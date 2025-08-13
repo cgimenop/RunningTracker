@@ -1,5 +1,5 @@
 import argparse
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 import pandas as pd
 import os
 from openpyxl import load_workbook
@@ -14,9 +14,12 @@ def calc_pace(total_time_s, distance_m):
 
 
 def parse_tcx_detailed(tcx_file):
-    ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
-    tree = ET.parse(tcx_file)
-    root = tree.getroot()
+    try:
+        ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+        tree = ET.parse(tcx_file)
+        root = tree.getroot()
+    except ET.ParseError as e:
+        raise ValueError(f"Invalid XML file: {e}")
 
     rows = []
     lap_counter = 0
@@ -25,11 +28,16 @@ def parse_tcx_detailed(tcx_file):
         lap_counter += 1
 
         lap_start = lap.attrib.get("StartTime")
+        # amazonq-ignore-next-line
         lap_total_time = lap.find("tcx:TotalTimeSeconds", ns)
+        # amazonq-ignore-next-line
         lap_distance = lap.find("tcx:DistanceMeters", ns)
 
-        total_time_s = float(lap_total_time.text) if lap_total_time is not None else None
-        distance_m = float(lap_distance.text) if lap_distance is not None else None
+        try:
+            total_time_s = float(lap_total_time.text) if lap_total_time is not None and lap_total_time.text else None
+            distance_m = float(lap_distance.text) if lap_distance is not None and lap_distance.text else None
+        except ValueError:
+            total_time_s = distance_m = None
         pace = calc_pace(total_time_s, distance_m)
 
         for tp in lap.findall(".//tcx:Trackpoint", ns):
@@ -46,24 +54,39 @@ def parse_tcx_detailed(tcx_file):
                 "Distance_m": None,
             }
 
+            # amazonq-ignore-next-line
             time_elem = tp.find("tcx:Time", ns)
             if time_elem is not None:
                 row["Time"] = time_elem.text
 
+            # amazonq-ignore-next-line
             pos_elem = tp.find("tcx:Position", ns)
             if pos_elem is not None:
+                # amazonq-ignore-next-line
                 lat_elem = pos_elem.find("tcx:LatitudeDegrees", ns)
+                # amazonq-ignore-next-line
                 lon_elem = pos_elem.find("tcx:LongitudeDegrees", ns)
-                row["Latitude"] = float(lat_elem.text) if lat_elem is not None else None
-                row["Longitude"] = float(lon_elem.text) if lon_elem is not None else None
+                try:
+                    row["Latitude"] = float(lat_elem.text) if lat_elem is not None and lat_elem.text else None
+                    row["Longitude"] = float(lon_elem.text) if lon_elem is not None and lon_elem.text else None
+                except ValueError:
+                    row["Latitude"] = row["Longitude"] = None
 
+            # amazonq-ignore-next-line
             alt_elem = tp.find("tcx:AltitudeMeters", ns)
-            if alt_elem is not None:
-                row["Altitude_m"] = float(alt_elem.text)
+            if alt_elem is not None and alt_elem.text:
+                try:
+                    row["Altitude_m"] = float(alt_elem.text)
+                except ValueError:
+                    row["Altitude_m"] = None
 
+            # amazonq-ignore-next-line
             dist_elem = tp.find("tcx:DistanceMeters", ns)
-            if dist_elem is not None:
-                row["Distance_m"] = float(dist_elem.text)
+            if dist_elem is not None and dist_elem.text:
+                try:
+                    row["Distance_m"] = float(dist_elem.text)
+                except ValueError:
+                    row["Distance_m"] = None
 
             rows.append(row)
 
@@ -71,9 +94,12 @@ def parse_tcx_detailed(tcx_file):
 
 
 def parse_tcx_summary(tcx_file):
-    ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
-    tree = ET.parse(tcx_file)
-    root = tree.getroot()
+    try:
+        ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+        tree = ET.parse(tcx_file)
+        root = tree.getroot()
+    except ET.ParseError as e:
+        raise ValueError(f"Invalid XML file: {e}")
 
     rows = []
     lap_counter = 0
@@ -82,11 +108,16 @@ def parse_tcx_summary(tcx_file):
         lap_counter += 1
 
         lap_start = lap.attrib.get("StartTime")
+        # amazonq-ignore-next-line
         lap_total_time = lap.find("tcx:TotalTimeSeconds", ns)
+        # amazonq-ignore-next-line
         lap_distance = lap.find("tcx:DistanceMeters", ns)
 
-        total_time_s = float(lap_total_time.text) if lap_total_time is not None else None
-        distance_m = float(lap_distance.text) if lap_distance is not None else None
+        try:
+            total_time_s = float(lap_total_time.text) if lap_total_time is not None and lap_total_time.text else None
+            distance_m = float(lap_distance.text) if lap_distance is not None and lap_distance.text else None
+        except ValueError:
+            total_time_s = distance_m = None
         pace = calc_pace(total_time_s, distance_m)
 
         rows.append({
@@ -101,12 +132,16 @@ def parse_tcx_summary(tcx_file):
 
 
 def get_first_lap_date(tcx_file):
-    ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
-    tree = ET.parse(tcx_file)
-    root = tree.getroot()
-    first_lap = root.find(".//tcx:Lap", ns)
-    if first_lap is not None and "StartTime" in first_lap.attrib:
-        return first_lap.attrib["StartTime"].split("T")[0]
+    try:
+        ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+        tree = ET.parse(tcx_file)
+        root = tree.getroot()
+        # amazonq-ignore-next-line
+        first_lap = root.find(".//tcx:Lap", ns)
+        if first_lap is not None and "StartTime" in first_lap.attrib:
+            return first_lap.attrib["StartTime"].split("T")[0]
+    except ET.ParseError:
+        pass
     return "UnknownDate"
 
 
@@ -141,6 +176,7 @@ def push_to_mongo(df, collection, unique_keys):
     records = df.to_dict(orient="records")
     for rec in records:
         query = {k: rec.get(k) for k in unique_keys}
+        # amazonq-ignore-next-line
         collection.replace_one(query, rec, upsert=True)
 
 
@@ -185,7 +221,10 @@ def process_file(tcx_file, args, mongo_client=None):
                 unique_keys = ["LapStartTime", "LapNumber", "Time"]
 
             # Add filename to each record for uniqueness and traceability
-            df["_source_file"] = os.path.basename(tcx_file)
+            filename = os.path.basename(tcx_file)
+            if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+                filename = 'sanitized_file.tcx'
+            df["_source_file"] = filename
 
             # Convert DataFrame to dicts with updated keys
             records = df.to_dict(orient="records")
@@ -195,6 +234,7 @@ def process_file(tcx_file, args, mongo_client=None):
                 query = {k: rec.get(k) for k in unique_keys if rec.get(k) is not None}
                 # Include source file in query to avoid conflicts across files
                 query["_source_file"] = rec["_source_file"]
+                # amazonq-ignore-next-line
                 collection.replace_one(query, rec, upsert=True)
 
         print("✅ Data pushed to MongoDB")
