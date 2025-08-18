@@ -71,46 +71,6 @@ def calculate_file_summaries(grouped):
         })
     return file_summaries, file_all_laps, file_valid_laps
 
-def load_summary_data():
-    summary_data = list(db["summary"].find({}, {"_id": 0}))
-    grouped = defaultdict(list)
-    all_laps = []
-    for row in summary_data:
-        source = row.get("_source_file", "Unknown")
-        if "LapTotalTime_s" in row:
-            row["LapTotalTime_formatted"] = format_seconds(row["LapTotalTime_s"])
-        grouped[source].append(row)
-        row_copy = row.copy()
-        row_copy["_source_file"] = source
-        all_laps.append(row_copy)
-    return grouped, all_laps
-
-def calculate_file_summaries(grouped):
-    file_summaries = []
-    file_all_laps = {}
-    file_valid_laps = {}
-    for source, laps in grouped.items():
-        try:
-            valid = [l for l in laps if l.get("LapDistance_m") is not None and float(l["LapDistance_m"]) >= 990]
-        except (ValueError, TypeError):
-            valid = []
-        file_all_laps[source] = laps
-        file_valid_laps[source] = valid
-        try:
-            total_distance = sum(float(l.get("LapDistance_m", 0)) for l in laps)
-            total_time = sum(float(l.get("LapTotalTime_s", 0)) for l in laps)
-        except (ValueError, TypeError):
-            total_distance = total_time = 0
-        total_time_formatted = format_seconds(total_time)
-        file_summaries.append({
-            "source": source,
-            "date": extract_date_from_filename(source),
-            "total_distance": total_distance,
-            "total_time": total_time,
-            "total_time_formatted": total_time_formatted
-        })
-    return file_summaries, file_all_laps, file_valid_laps
-
 def find_records(all_laps, file_summaries):
     try:
         valid_laps = [lap for lap in all_laps if lap.get("LapDistance_m") is not None and float(lap["LapDistance_m"]) >= 990]
@@ -144,7 +104,7 @@ def index():
     file_summaries, file_all_laps, file_valid_laps = calculate_file_summaries(grouped)
     fastest_lap, slowest_lap, longest_distance_file, longest_time_file = find_records(all_laps, file_summaries)
     detailed_grouped = load_detailed_data()
-
+    
     return render_template(
         "index.html",
         grouped=grouped,
@@ -157,7 +117,6 @@ def index():
         longest_time_file=longest_time_file,
         detailed=detailed_grouped
     )
-
 
 if __name__ == "__main__":
     app.run(debug=DEBUG)

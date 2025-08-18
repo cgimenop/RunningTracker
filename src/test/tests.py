@@ -1,11 +1,15 @@
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock, call, mock_open
+import pandas as pd
+from datetime import timedelta
 from src import trainparser
 
-class DummyArgs:
-    def __init__(self, mode, output):
+class TestArgs:
+    def __init__(self, mode="both", output="test.xlsx", mongo=False, mongo_uri="mongodb://localhost:27017"):
         self.mode = mode
         self.output = output
+        self.mongo = mongo
+        self.mongo_uri = mongo_uri
 
 class TestProcessFile(unittest.TestCase):
     @patch("src.trainparser.get_first_lap_date", return_value="2024-01-01")
