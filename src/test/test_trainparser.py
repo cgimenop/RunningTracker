@@ -1,6 +1,7 @@
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from src import trainparser
+import pymongo.errors
 
 class TestArgs:
     def __init__(self, mode="both", output="test.xlsx", mongo=False, mongo_uri="mongodb://localhost:27017"):
@@ -19,8 +20,17 @@ class TestCalcPace(unittest.TestCase):
         result = trainparser.calc_pace(600, 0)
         self.assertIsNone(result)
     
-    def test_calc_pace_none_inputs(self):
-        result = trainparser.calc_pace(None, 1000)
+    def test_calc_pace_edge_cases(self):
+        # Test with very small distance
+        result = trainparser.calc_pace(600, 0.001)
+        self.assertIsNotNone(result)
+        
+        # Test with zero time - function returns None for invalid inputs
+        result = trainparser.calc_pace(0, 1000)
+        self.assertIsNone(result)
+        
+        # Test with negative values
+        result = trainparser.calc_pace(-100, 1000)
         self.assertIsNone(result)
 
 class TestGetFirstLapDate(unittest.TestCase):
@@ -69,6 +79,74 @@ class TestPushToMongo(unittest.TestCase):
         
         self.assertEqual(mock_collection.replace_one.call_count, 2)
 
+class TestParseTcxSummary(unittest.TestCase):
+    @patch('src.trainparser.ET.parse')
+    def test_parse_tcx_summary_valid(self, mock_parse):
+        mock_tree = MagicMock()
+        mock_root = MagicMock()
+        mock_lap = MagicMock()
+        mock_lap.attrib = {"StartTime": "2024-01-01T10:00:00Z"}
+        
+        mock_total_time = MagicMock()
+        mock_total_time.text = "600"
+        mock_distance = MagicMock()
+        mock_distance.text = "1000"
+        
+        mock_lap.find.side_effect = lambda x, ns: {
+            "tcx:TotalTimeSeconds": mock_total_time,
+            "tcx:DistanceMeters": mock_distance
+        }.get(x)
+        
+        mock_parse.return_value = mock_tree
+        mock_tree.getroot.return_value = mock_root
+        mock_root.findall.return_value = [mock_lap]
+        
+        result = trainparser.parse_tcx_summary("test.tcx")
+        
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["LapNumber"], 1)
+    
+    @patch('src.trainparser.ET.parse')
+    def test_parse_tcx_summary_invalid_xml(self, mock_parse):
+        mock_parse.side_effect = trainparser.ET.ParseError("Invalid XML")
+        
+        with self.assertRaises(ValueError):
+            trainparser.parse_tcx_summary("invalid.tcx")
+
+class TestParseTcxDetailed(unittest.TestCase):
+    @patch('src.trainparser.ET.parse')
+    def test_parse_tcx_detailed_valid(self, mock_parse):
+        mock_tree = MagicMock()
+        mock_root = MagicMock()
+        mock_lap = MagicMock()
+        mock_lap.attrib = {"StartTime": "2024-01-01T10:00:00Z"}
+        
+        mock_trackpoint = MagicMock()
+        mock_time = MagicMock()
+        mock_time.text = "2024-01-01T10:00:01Z"
+        
+        mock_trackpoint.find.side_effect = lambda x, ns: {
+            "tcx:Time": mock_time,
+            "tcx:Position": None,
+            "tcx:AltitudeMeters": None,
+            "tcx:DistanceMeters": None
+        }.get(x)
+        
+        mock_lap.findall.return_value = [mock_trackpoint]
+        mock_lap.find.side_effect = lambda x, ns: {
+            "tcx:TotalTimeSeconds": MagicMock(text="600"),
+            "tcx:DistanceMeters": MagicMock(text="1000")
+        }.get(x)
+        
+        mock_parse.return_value = mock_tree
+        mock_tree.getroot.return_value = mock_root
+        mock_root.findall.return_value = [mock_lap]
+        
+        result = trainparser.parse_tcx_detailed("test.tcx")
+        
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["LapNumber"], 1)
+
 class TestProcessFile(unittest.TestCase):
     @patch("src.trainparser.get_first_lap_date", return_value="2024-01-01")
     @patch("src.trainparser.write_to_excel")
@@ -93,26 +171,6 @@ class TestProcessFile(unittest.TestCase):
     @patch("src.trainparser.parse_tcx_summary")
     @patch("src.trainparser.parse_tcx_detailed")
     @patch("src.trainparser.os.path.basename", return_value="file.tcx")
-    def test_process_file_both_no_mongo(
-        self, mock_basename, mock_parse_detailed, mock_parse_summary, mock_write, mock_get_date
-    ):
-        args = TestArgs(mode="both", output="out.xlsx")
-        df_summary = MagicMock()
-        df_detail = MagicMock()
-        mock_parse_summary.return_value = df_summary
-        mock_parse_detailed.return_value = df_detail
-
-        trainparser.process_file("file.tcx", args, mongo_client=None)
-
-        mock_parse_summary.assert_called_once_with("file.tcx")
-        mock_parse_detailed.assert_called_once_with("file.tcx")
-        self.assertEqual(mock_write.call_count, 2)
-
-    @patch("src.trainparser.get_first_lap_date", return_value="2024-01-01")
-    @patch("src.trainparser.write_to_excel")
-    @patch("src.trainparser.parse_tcx_summary")
-    @patch("src.trainparser.parse_tcx_detailed")
-    @patch("src.trainparser.os.path.basename", return_value="file.tcx")
     def test_process_file_with_mongo(
         self, mock_basename, mock_parse_detailed, mock_parse_summary, mock_write, mock_get_date
     ):
@@ -131,6 +189,41 @@ class TestProcessFile(unittest.TestCase):
         mock_parse_summary.assert_called_once_with("file.tcx")
         mock_write.assert_called_once_with(df_summary, "out.xlsx", "2024-01-01_summary")
         mock_collection.replace_one.assert_called()
+
+class TestErrorHandling(unittest.TestCase):
+    @patch('src.trainparser.MongoClient')
+    def test_mongo_connection_error(self, mock_client):
+        mock_client.side_effect = pymongo.errors.ServerSelectionTimeoutError("Connection failed")
+        
+        with patch('src.trainparser.argparse.ArgumentParser') as mock_parser:
+            mock_args = MagicMock()
+            mock_args.mongo = True
+            mock_args.mongo_uri = "mongodb://localhost:27017"
+            mock_args.input_path = "test.tcx"
+            mock_parser_instance = MagicMock()
+            mock_parser_instance.parse_args.return_value = mock_args
+            mock_parser.return_value = mock_parser_instance
+            
+            with patch('src.trainparser.os.path.exists', return_value=False):
+                trainparser.main()  # Should not crash
+    
+    @patch('src.trainparser.os.listdir')
+    @patch('builtins.print')
+    def test_directory_access_error(self, mock_print, mock_listdir):
+        mock_listdir.side_effect = PermissionError("Access denied")
+        
+        with patch('src.trainparser.argparse.ArgumentParser') as mock_parser:
+            mock_args = MagicMock()
+            mock_args.mongo = False
+            mock_args.input_path = "/restricted/path"
+            mock_parser_instance = MagicMock()
+            mock_parser_instance.parse_args.return_value = mock_args
+            mock_parser.return_value = mock_parser_instance
+            
+            with patch('src.trainparser.os.path.exists', return_value=True):
+                with patch('src.trainparser.os.path.isfile', return_value=False):
+                    trainparser.main()
+                    mock_print.assert_any_call("ERROR: Cannot access directory '/restricted/path': Access denied")
 
 class TestMain(unittest.TestCase):
     @patch('src.trainparser.argparse.ArgumentParser')

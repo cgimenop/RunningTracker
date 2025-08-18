@@ -8,7 +8,7 @@ from pymongo.errors import ServerSelectionTimeoutError
 
 
 def calc_pace(total_time_s, distance_m):
-    if total_time_s and distance_m and distance_m > 0:
+    if total_time_s and distance_m and distance_m > 0 and total_time_s > 0:
         return (total_time_s / (distance_m / 1000.0)) / 60.0
     return None
 
@@ -294,13 +294,17 @@ def main():
             files = [args.input_path]
         else:
             # Folder - get all .tcx files
-            files = [
-                os.path.join(args.input_path, f)
-                for f in os.listdir(args.input_path)
-                if f.lower().endswith(".tcx") and os.path.isfile(os.path.join(args.input_path, f))
-            ]
-            if not files:
-                print(f"No .tcx files found in folder '{args.input_path}'.")
+            try:
+                files = [
+                    os.path.join(args.input_path, f)
+                    for f in os.listdir(args.input_path)
+                    if f.lower().endswith(".tcx") and os.path.isfile(os.path.join(args.input_path, f))
+                ]
+                if not files:
+                    print(f"No .tcx files found in folder '{args.input_path}'.")
+                    return
+            except (PermissionError, OSError) as e:
+                print(f"ERROR: Cannot access directory '{args.input_path}': {e}")
                 return
 
         for f in files:

@@ -1,0 +1,42 @@
+name: Test Coverage
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27017:27017
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-test.txt
+    
+    - name: Run tests with coverage
+      run: |
+        python -m pytest --cov=src --cov=webapp --cov-report=xml --cov-report=term-missing --cov-branch src/test/test_trainparser.py
+        cd webapp && python -m pytest --cov=. --cov-report=xml --cov-report=term-missing --cov-branch test/test_app.py
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml,./webapp/coverage.xml
+        fail_ci_if_error: false
+        verbose: true
