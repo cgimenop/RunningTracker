@@ -50,6 +50,7 @@ ENV/
 
 # Input files
 data/*
+data
 !data/.gitkeep
 **/*.tcx
 
