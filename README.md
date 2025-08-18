@@ -1,5 +1,9 @@
 # RunningTracker
 
+![Tests](https://github.com/username/RunningTracker/workflows/Tests/badge.svg)
+![Coverage](https://github.com/username/RunningTracker/workflows/Test%20Coverage/badge.svg)
+
+
 **A comprehensive running data analysis and visualization platform**
 
 RunningTracker is a Python-based application that parses TCX (Training Center XML) files from GPS running devices, stores the data in MongoDB, and provides a web-based dashboard for analyzing running performance. Track your progress, analyze lap times, visualize routes, and monitor your running statistics over time.
@@ -35,7 +39,7 @@ RunningTracker is a Python-based application that parses TCX (Training Center XM
    ```bash
    # Development mode (with debug enabled)
    docker-compose up
-   
+
    # Production mode
    FLASK_ENV=production docker-compose up
    ```
@@ -54,7 +58,7 @@ RunningTracker is a Python-based application that parses TCX (Training Center XM
    # Create and activate virtual environment
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
-   
+
    # Install dependencies
    pip install -r requirements.txt
    ```
@@ -63,7 +67,7 @@ RunningTracker is a Python-based application that parses TCX (Training Center XM
    ```bash
    # Using Homebrew on macOS
    brew services start mongodb-community
-   
+
    # Or using Docker
    docker run -d -p 27017:27017 --name mongodb mongo:6.0
    ```
@@ -72,10 +76,10 @@ RunningTracker is a Python-based application that parses TCX (Training Center XM
    ```bash
    # Parse single file
    python src/trainparser.py data/your-file.tcx --mongo
-   
+
    # Parse entire directory
    python src/trainparser.py data/ --mongo
-   
+
    # Export to Excel only
    python src/trainparser.py data/ --output results.xlsx
    ```
@@ -83,10 +87,10 @@ RunningTracker is a Python-based application that parses TCX (Training Center XM
 4. **Start web application**:
    ```bash
    cd webapp
-   
+
    # Development mode
    FLASK_ENV=development python app.py
-   
+
    # Production mode
    FLASK_ENV=production python app.py
    ```
@@ -100,10 +104,10 @@ RunningTracker is a Python-based application that parses TCX (Training Center XM
    ```bash
    # macOS
    brew install mongodb-community
-   
+
    # Ubuntu/Debian
    sudo apt-get install mongodb
-   
+
    # Or use Docker
    docker run -d -p 27017:27017 mongo:6.0
    ```
@@ -117,7 +121,7 @@ RunningTracker is a Python-based application that parses TCX (Training Center XM
    ```bash
    # Process TCX files
    python src/trainparser.py data/ --mongo
-   
+
    # Start web server
    cd webapp && python app.py
    ```
