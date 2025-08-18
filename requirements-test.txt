@@ -1,0 +1,7 @@
+# Test dependencies
+pytest>=7.0.0
+pytest-mock>=3.10.0
+coverage>=7.0.0
+
+# Main application dependencies (needed for imports)
+-r requirements.txt

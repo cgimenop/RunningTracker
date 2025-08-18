@@ -1,4 +1,5 @@
 # Run all tests
+source venv-test/bin/activate
 python -m pytest
 
 # Run specific test file
