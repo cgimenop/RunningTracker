@@ -287,22 +287,26 @@ def main():
             print("ERROR: Could not connect to MongoDB. Please check your connection.")
             return
 
-    # Determine if input is file or folder
-    if os.path.isfile(args.input_path):
-        files = [args.input_path]
-    else:
-        # Folder - get all .tcx files
-        files = [
-            os.path.join(args.input_path, f)
-            for f in os.listdir(args.input_path)
-            if f.lower().endswith(".tcx") and os.path.isfile(os.path.join(args.input_path, f))
-        ]
-        if not files:
-            print(f"No .tcx files found in folder '{args.input_path}'.")
-            return
+    try:
+        # Determine if input is file or folder
+        if os.path.isfile(args.input_path):
+            files = [args.input_path]
+        else:
+            # Folder - get all .tcx files
+            files = [
+                os.path.join(args.input_path, f)
+                for f in os.listdir(args.input_path)
+                if f.lower().endswith(".tcx") and os.path.isfile(os.path.join(args.input_path, f))
+            ]
+            if not files:
+                print(f"No .tcx files found in folder '{args.input_path}'.")
+                return
 
-    for f in files:
-        process_file(f, args, mongo_client)
+        for f in files:
+            process_file(f, args, mongo_client)
+    finally:
+        if mongo_client:
+            mongo_client.close()
 
 
 if __name__ == "__main__":
