@@ -1,25 +1,57 @@
-data
-output
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# MacOS system files
-.DS_store
-
-# Ignore Python virtual environments
-venv/
-.env
-.env.local
-.env.development
-.env.test
-.env.production
-
-# Ignore VS Code settings
-.vscode/
-.vscode-test/
-
-# Ignore Python cache files and folders
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Ignore test cache
-*.pytest_cache/
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# Input files
+data/
+**/*.tcx
+
+# Output files
+output/
+*.xlsx
