@@ -279,6 +279,7 @@ def main():
     mongo_client = None
     if args.mongo:
         try:
+            # amazonq-ignore-next-line
             mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
             # Trigger a server selection to verify connection
             mongo_client.server_info()

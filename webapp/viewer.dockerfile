@@ -11,8 +11,10 @@ RUN pip install --no-cache-dir watchdog
 
 COPY . /app
 
+ARG FLASK_ENV=production
 ENV FLASK_APP=app.py
 ENV FLASK_RUN_HOST=0.0.0.0
+ENV FLASK_ENV=${FLASK_ENV}
 
 EXPOSE 5000
 

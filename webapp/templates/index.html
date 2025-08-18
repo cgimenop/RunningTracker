@@ -12,7 +12,7 @@
 <body>
     {% macro lap_icon(lap, fastest, slowest) -%}
         {% if lap and fastest and lap['LapNumber'] == fastest['LapNumber'] %}
-            <span title="Fastest Lap" style="font-size:1.2em;vertical-align:middle;">⏱️</span>
+            <span title="Fastest Lap" style="font-size:1.2em;vertical-align:middle;">⚡</span>
         {% elif lap and slowest and lap['LapNumber'] == slowest['LapNumber'] %}
             <span title="Slowest Lap" style="font-size:1.2em;vertical-align:middle;">🐢</span>
         {% else %}

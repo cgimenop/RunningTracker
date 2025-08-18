@@ -2,8 +2,6 @@ import unittest
 from unittest.mock import patch, MagicMock, call
 from src import trainparser
 
-# Python
-
 class DummyArgs:
     def __init__(self, mode, output):
         self.mode = mode

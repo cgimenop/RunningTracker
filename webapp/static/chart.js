@@ -4,6 +4,7 @@ function extractDateFromFilename(filename) {
     return match ? match[1] : filename;
 }
 
+// TODO: Fix the colors to be always same seed
 document.addEventListener("DOMContentLoaded", function () {
     // Chart logic
     const groupedData = window.groupedData || {};
@@ -106,7 +107,7 @@ document.addEventListener("DOMContentLoaded", function () {
 // Helper for formatting seconds as HH:mm:ss
 function formatSecondsToHMS(seconds) {
     seconds = Number(seconds);
-    if (isNaN(seconds)) return seconds;
+    if (isNaN(seconds)) return "00:00:00";
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
