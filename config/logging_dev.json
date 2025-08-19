@@ -1,0 +1,34 @@
+{
+    "version": 1,
+    "disable_existing_loggers": false,
+    "formatters": {
+        "detailed": {
+            "format": "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+        },
+        "simple": {
+            "format": "%(asctime)s - %(levelname)s - %(message)s"
+        }
+    },
+    "handlers": {
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": "logs/app_dev.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "formatter": "detailed",
+            "level": "DEBUG"
+        },
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+            "level": "DEBUG"
+        }
+    },
+    "loggers": {
+        "": {
+            "handlers": ["file", "console"],
+            "level": "DEBUG",
+            "propagate": false
+        }
+    }
+}
