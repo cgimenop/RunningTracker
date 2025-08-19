@@ -52,7 +52,7 @@ ENV/
 data/*
 data
 !data/.gitkeep
-**/*.tcx
+
 
 # Output files
 output/
