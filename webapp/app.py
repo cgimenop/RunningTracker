@@ -75,9 +75,44 @@ def load_summary_data():
         if "LapDistance_m" in row:
             row["LapDistance_formatted"] = format_distance(row["LapDistance_m"])
         grouped[source].append(row)
-        row_copy = row.copy()
-        row_copy["_source_file"] = source
-        all_laps.append(row_copy)
+    
+    # Calculate altitude deltas for each file (need detailed data for max/min calculation)
+    for source, laps in grouped.items():
+        # Get detailed data for this source to calculate lap altitude deltas
+        source_detailed = list(db["detailed"].find({"_source_file": source}, {"_id": 0}).sort("Time", 1))
+        
+        for lap in laps:
+            lap_num = lap.get("LapNumber")
+            if lap_num is not None:
+                # Find all detailed points for this lap
+                lap_points = [p for p in source_detailed if p.get("LapNumber") == lap_num and p.get("Altitude_m") is not None]
+                
+                if lap_points:
+                    try:
+                        altitudes = [float(p["Altitude_m"]) for p in lap_points]
+                        
+                        # Accumulate all elevation changes between consecutive checkpoints
+                        total_elevation_change = 0
+                        for i in range(1, len(altitudes)):
+                            change = altitudes[i] - altitudes[i-1]
+                            total_elevation_change += change  # Accumulate signed changes
+                            
+                        lap["AltitudeDelta_m"] = total_elevation_change
+                    except (ValueError, TypeError):
+                        lap["AltitudeDelta_m"] = 0
+                else:
+                    lap["AltitudeDelta_m"] = 0
+            else:
+                lap["AltitudeDelta_m"] = 0
+            
+            lap["AltitudeDelta_formatted"] = format_altitude(lap["AltitudeDelta_m"])
+    
+    # Build all_laps after altitude delta calculation
+    for source, laps in grouped.items():
+        for lap in laps:
+            row_copy = lap.copy()
+            row_copy["_source_file"] = source
+            all_laps.append(row_copy)
     return grouped, all_laps
 
 def calculate_file_summaries(grouped):
@@ -159,6 +194,18 @@ def load_detailed_data():
                 row["Altitude_formatted"] = format_altitude(row["Altitude_m"])
             if "LapTotalTime_s" in row and row["LapTotalTime_s"] is not None:
                 row["LapTotalTime_formatted"] = format_seconds(row["LapTotalTime_s"])
+            
+            # Calculate altitude delta from previous sample
+            if i == 0:
+                row["AltitudeDelta_m"] = 0  # First sample has no delta
+            else:
+                try:
+                    prev_alt = float(filtered_data[i-1].get("Altitude_m", 0))
+                    curr_alt = float(row.get("Altitude_m", 0))
+                    row["AltitudeDelta_m"] = curr_alt - prev_alt
+                except (ValueError, TypeError):
+                    row["AltitudeDelta_m"] = 0
+            row["AltitudeDelta_formatted"] = format_altitude(row["AltitudeDelta_m"])
             
             # Add merging info for each column
             row["_merge_info"] = {}

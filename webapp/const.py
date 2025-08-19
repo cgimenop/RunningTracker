@@ -9,6 +9,7 @@ FRIENDLY_COLUMN_NAMES = {
     'LapDistance_m': 'Lap Distance',
     'Distance_m': 'Distance',
     'Altitude_m': 'Altitude',
+    'AltitudeDelta_m': 'Altitude Δ',
     'LapTotalTime_s': 'Lap Time',
     'Pace_min_per_km': 'Pace',
     'Latitude_deg': 'Latitude',
