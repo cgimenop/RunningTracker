@@ -1,7 +1,6 @@
 # RunningTracker
-
-![Tests](https://github.com/username/RunningTracker/workflows/Tests/badge.svg)
-![Coverage](https://github.com/username/RunningTracker/workflows/Test%20Coverage/badge.svg)
+![Tests](https://github.com/cgimenop/RunningTracker/workflows/Tests/badge.svg)
+![Coverage](https://github.com/cgimenop/RunningTracker/workflows/Test%20Coverage/badge.svg)
 
 
 **A comprehensive running data analysis and visualization platform**
