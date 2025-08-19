@@ -4,6 +4,7 @@ from flask import Flask, render_template
 from pymongo import MongoClient
 from collections import defaultdict
 from datetime import timedelta
+from const import MERGE_COLUMNS, FRIENDLY_COLUMN_NAMES, DETAILED_DATA_SAMPLE_INTERVAL, MIN_VALID_LAP_DISTANCE
 
 app = Flask(__name__)
 
@@ -21,11 +22,43 @@ db = client[DATABASE_NAME]
 def regex_search(s, pattern):
     return re.search(pattern, s)
 
+@app.template_filter('format_distance')
+def format_distance_filter(distance_m):
+    return format_distance(distance_m)
+
+@app.template_filter('format_altitude')
+def format_altitude_filter(altitude_m):
+    return format_altitude(altitude_m)
+
+@app.template_filter('friendly_name')
+def friendly_name_filter(column_name):
+    return get_friendly_column_name(column_name)
+
 def format_seconds(seconds):
     try:
         return str(timedelta(seconds=int(float(seconds))))
     except (ValueError, TypeError):
         return "00:00:00"
+
+def format_distance(distance_m):
+    try:
+        distance = float(distance_m)
+        if distance >= 1000:
+            return f"{distance / 1000:.2f} km"
+        else:
+            return f"{distance:.2f} m"
+    except (ValueError, TypeError):
+        return "0.00 m"
+
+def format_altitude(altitude_m):
+    try:
+        return f"{float(altitude_m):.2f} m"
+    except (ValueError, TypeError):
+        return "0.00 m"
+
+def get_friendly_column_name(column_name):
+    """Convert technical column names to human-friendly names"""
+    return FRIENDLY_COLUMN_NAMES.get(column_name, column_name)
 
 def extract_date_from_filename(filename):
     match = re.search(r'([0-9]{4}-[0-9]{2}-[0-9]{2})', filename)
@@ -39,6 +72,8 @@ def load_summary_data():
         source = row.get("_source_file", "Unknown")
         if "LapTotalTime_s" in row:
             row["LapTotalTime_formatted"] = format_seconds(row["LapTotalTime_s"])
+        if "LapDistance_m" in row:
+            row["LapDistance_formatted"] = format_distance(row["LapDistance_m"])
         grouped[source].append(row)
         row_copy = row.copy()
         row_copy["_source_file"] = source
@@ -51,7 +86,7 @@ def calculate_file_summaries(grouped):
     file_valid_laps = {}
     for source, laps in grouped.items():
         try:
-            valid = [l for l in laps if l.get("LapDistance_m") is not None and float(l["LapDistance_m"]) >= 990]
+            valid = [l for l in laps if l.get("LapDistance_m") is not None and float(l["LapDistance_m"]) >= MIN_VALID_LAP_DISTANCE]
         except (ValueError, TypeError):
             valid = []
         file_all_laps[source] = laps
@@ -66,6 +101,7 @@ def calculate_file_summaries(grouped):
             "source": source,
             "date": extract_date_from_filename(source),
             "total_distance": total_distance,
+            "total_distance_formatted": format_distance(total_distance),
             "total_time": total_time,
             "total_time_formatted": total_time_formatted
         })
@@ -73,7 +109,7 @@ def calculate_file_summaries(grouped):
 
 def find_records(all_laps, file_summaries):
     try:
-        valid_laps = [lap for lap in all_laps if lap.get("LapDistance_m") is not None and float(lap["LapDistance_m"]) >= 990]
+        valid_laps = [lap for lap in all_laps if lap.get("LapDistance_m") is not None and float(lap["LapDistance_m"]) >= MIN_VALID_LAP_DISTANCE]
     except (ValueError, TypeError):
         valid_laps = []
     
@@ -91,11 +127,60 @@ def find_records(all_laps, file_summaries):
     return fastest_lap, slowest_lap, longest_distance_file, longest_time_file
 
 def load_detailed_data():
-    detailed_data = list(db["detailed"].find({}, {"_id": 0}))
+    detailed_data = list(db["detailed"].find({}, {"_id": 0}).sort("Time", 1))
     detailed_grouped = defaultdict(list)
-    for row in detailed_data:
-        source = row.get("_source_file", "Unknown")
-        detailed_grouped[source].append(row)
+    
+    for source in set(row.get("_source_file", "Unknown") for row in detailed_data):
+        source_data = [row for row in detailed_data if row.get("_source_file") == source]
+        
+        # Filter to show every N seconds
+        filtered_data = []
+        last_time = None
+        
+        for i, row in enumerate(source_data):
+            # Always include first row
+            if i == 0:
+                filtered_data.append(row)
+                last_time = i
+            # Include every Nth row (approximately N seconds)
+            elif i - last_time >= DETAILED_DATA_SAMPLE_INTERVAL:
+                filtered_data.append(row)
+                last_time = i
+        
+        # Format fields and add cell merging info
+        
+        for i, row in enumerate(filtered_data):
+            # Format fields
+            if "LapDistance_m" in row and row["LapDistance_m"] is not None:
+                row["LapDistance_formatted"] = format_distance(row["LapDistance_m"])
+            if "Distance_m" in row and row["Distance_m"] is not None:
+                row["Distance_formatted"] = format_distance(row["Distance_m"])
+            if "Altitude_m" in row and row["Altitude_m"] is not None:
+                row["Altitude_formatted"] = format_altitude(row["Altitude_m"])
+            if "LapTotalTime_s" in row and row["LapTotalTime_s"] is not None:
+                row["LapTotalTime_formatted"] = format_seconds(row["LapTotalTime_s"])
+            
+            # Add merging info for each column
+            row["_merge_info"] = {}
+            for col in MERGE_COLUMNS:
+                if col in row:
+                    # Check if this is the first occurrence of this value
+                    is_first = i == 0 or (i > 0 and filtered_data[i-1].get(col) != row[col])
+                    
+                    if is_first:
+                        # Count consecutive rows with same value
+                        rowspan = 1
+                        for j in range(i + 1, len(filtered_data)):
+                            if filtered_data[j].get(col) == row[col]:
+                                rowspan += 1
+                            else:
+                                break
+                        row["_merge_info"][col] = {"show": True, "rowspan": rowspan}
+                    else:
+                        row["_merge_info"][col] = {"show": False, "rowspan": 1}
+        
+        detailed_grouped[source] = filtered_data
+    
     return detailed_grouped
 
 @app.route("/")

@@ -9,12 +9,17 @@ RunningTracker is a Python-based application that parses TCX (Training Center XM
 
 ## Features
 
-- **TCX File Processing**: Parse Garmin and other GPS device files
-- **Data Storage**: MongoDB integration for persistent data storage
-- **Excel Export**: Generate detailed Excel reports with lap summaries
-- **Web Dashboard**: Interactive charts and performance analytics
-- **Performance Tracking**: Monitor fastest/slowest laps, distances, and times
-- **Docker Support**: Easy deployment with containerization
+- **TCX File Processing**: Parse Garmin and other GPS device files with comprehensive error handling
+- **Data Storage**: MongoDB integration with automatic data formatting and validation
+- **Excel Export**: Generate detailed Excel reports with lap summaries and metrics
+- **Web Dashboard**: Interactive charts and performance analytics with real-time data
+- **Performance Tracking**: Monitor fastest/slowest laps, distances, and times with visual indicators
+- **Smart Data Display**: Automatic unit conversion (m/km), time formatting (HH:mm:ss), and 2-decimal precision
+- **Detailed Analysis**: GPS trackpoint data with 10-second sampling and cell merging for cleaner tables
+- **User-Friendly Interface**: Human-readable column names and local timezone display
+- **Comprehensive Logging**: Environment-based logging (DEBUG/WARNING) with file rotation
+- **Docker Support**: Easy deployment with containerization and environment configuration
+- **Automated Testing**: Full test coverage with CI/CD integration
 
 ## Quick Start
 
@@ -172,10 +177,14 @@ python src/trainparser.py data/ --output my-results.xlsx
 
 ### Web Dashboard Features
 
-- **Performance Charts**: Visualize lap times and distances
-- **Records Tracking**: View fastest/slowest laps and longest runs
-- **Data Tables**: Detailed lap-by-lap analysis
-- **Date Filtering**: Analyze performance over time
+- **Performance Charts**: Visualize lap times and distances with interactive graphs
+- **Records Tracking**: View fastest/slowest laps and longest runs with visual indicators
+- **Smart Data Tables**: Lap-by-lap analysis with automatic unit formatting
+- **Detailed GPS Data**: 10-second sampled trackpoints with merged cells for cleaner display
+- **Local Timezone**: All timestamps automatically converted to local time
+- **Human-Friendly Names**: Technical field names converted to readable labels
+- **Distance Formatting**: Automatic conversion between meters and kilometers
+- **Time Formatting**: Duration display in HH:mm:ss format
 
 ## Development
 

@@ -64,7 +64,7 @@
             <td>Longest Distance</td>
             <td>
                 {% if longest_distance_file %}
-                    {{ '%.2f' % longest_distance_file.total_distance }} m
+                    {{ longest_distance_file.total_distance_formatted }}
                 {% else %}-{% endif %}
             </td>
             <td>
@@ -109,7 +109,7 @@
                 <td>{{ lap_icon(row, fastest, slowest) }}</td>
                 <td>{{ row.get("LapNumber", "") }}</td>
                 <td><span class="local-datetime">{{ row.get("LapStartTime", "") }}</span></td>
-                <td>{{ row.get("LapDistance_m", "") }}</td>
+                <td>{{ row.get("LapDistance_formatted", row.get("LapDistance_m", "")|format_distance) }}</td>
                 <td>
                     {% if row.get("Pace_min_per_km") is not none %}
                         {{ '%.2f' % row.get("Pace_min_per_km") }} min/km
@@ -129,13 +129,34 @@
             <table>
                 <tr>
                     {% for key in details[0].keys() %}
-                        <th>{{ key }}</th>
+                        {% if not key.endswith('_formatted') and key != '_merge_info' and key != '_source_file' %}
+                            <th>{{ key|friendly_name }}</th>
+                        {% endif %}
                     {% endfor %}
                 </tr>
                 {% for row in details %}
                 <tr>
-                    {% for value in row.values() %}
-                        <td>{{ value }}</td>
+                    {% for key, value in row.items() %}
+                        {% if not key.endswith('_formatted') and key != '_merge_info' and key != '_source_file' %}
+                            {% set merge_info = row._merge_info.get(key, {"show": true, "rowspan": 1}) %}
+                            {% if merge_info.show %}
+                                <td{% if merge_info.rowspan > 1 %} rowspan="{{ merge_info.rowspan }}"{% endif %}>
+                                    {% if key == 'Time' or key == 'LapStartTime' %}
+                                        <span class="local-datetime">{{ value }}</span>
+                                    {% elif key == 'LapDistance_m' %}
+                                        {{ row.get('LapDistance_formatted', value|format_distance) }}
+                                    {% elif key == 'Distance_m' %}
+                                        {{ row.get('Distance_formatted', value|format_distance) }}
+                                    {% elif key == 'Altitude_m' %}
+                                        {{ row.get('Altitude_formatted', value|format_altitude) }}
+                                    {% elif key == 'LapTotalTime_s' %}
+                                        {{ row.get('LapTotalTime_formatted', value) }}
+                                    {% else %}
+                                        {{ value }}
+                                    {% endif %}
+                                </td>
+                            {% endif %}
+                        {% endif %}
                     {% endfor %}
                 </tr>
                 {% endfor %}

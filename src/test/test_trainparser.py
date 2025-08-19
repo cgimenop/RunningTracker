@@ -1,7 +1,11 @@
 import unittest
+import sys
 from unittest.mock import patch, MagicMock
-from src import trainparser
 import pymongo.errors
+
+# Import trainparser with logging mocked
+with patch.dict('sys.modules', {'logging_config': MagicMock()}):
+    from src import trainparser
 
 class TestArgs:
     def __init__(self, mode="both", output="test.xlsx", mongo=False, mongo_uri="mongodb://localhost:27017"):
