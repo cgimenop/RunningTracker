@@ -19,7 +19,7 @@ FRIENDLY_COLUMN_NAMES = {
 }
 
 # Data sampling interval (every Nth row for detailed data)
-DETAILED_DATA_SAMPLE_INTERVAL = 10
+DETAILED_DATA_SAMPLE_INTERVAL = 60
 
 # Minimum distance for valid laps (in meters)
 MIN_VALID_LAP_DISTANCE = 990
