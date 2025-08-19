@@ -106,11 +106,13 @@ class TestWebappFunctions(unittest.TestCase):
         # Results can be None or valid records
         self.assertTrue(fastest is None or isinstance(fastest, dict))
 
-    def test_load_detailed_data(self):
-        # Mock database response
-        self.mock_db.__getitem__.return_value.find.return_value = [
+    @patch('app.db')
+    def test_load_detailed_data(self, mock_db):
+        mock_cursor = MagicMock()
+        mock_cursor.sort.return_value = [
             {"_source_file": "test.tcx", "Time": "2024-01-01T10:00:00Z"}
         ]
+        mock_db.__getitem__.return_value.find.return_value = mock_cursor
         
         result = self.app_module.load_detailed_data()
         
