@@ -64,7 +64,7 @@
             <td>Longest Distance</td>
             <td>
                 {% if longest_distance_file %}
-                    {{ '%.2f' % longest_distance_file.total_distance }} m
+                    {{ longest_distance_file.total_distance_formatted }}
                 {% else %}-{% endif %}
             </td>
             <td>
@@ -89,7 +89,7 @@
     </table>
 
     <h2>Summary Data</h2>
-    {% for file in file_summaries %}
+    {% for file in file_summaries|sort(attribute='date', reverse=true) %}
         {% set all_laps = file_all_laps[file.source] %}
         {% set laps = file_valid_laps[file.source] %}
         {% set fastest = laps | min(attribute='LapTotalTime_s') %}
@@ -101,6 +101,7 @@
                 <th>Lap</th>
                 <th>Lap Start</th>
                 <th>Lap Distance</th>
+                <th>Altitude Δ</th>
                 <th>Pace</th>
                 <th>Lap time</th>
             </tr>
@@ -109,7 +110,13 @@
                 <td>{{ lap_icon(row, fastest, slowest) }}</td>
                 <td>{{ row.get("LapNumber", "") }}</td>
                 <td><span class="local-datetime">{{ row.get("LapStartTime", "") }}</span></td>
-                <td>{{ row.get("LapDistance_m", "") }}</td>
+                <td>{{ row.get("LapDistance_formatted", row.get("LapDistance_m", "")|format_distance) }}</td>
+                <td>
+                    {% set delta = row.get("AltitudeDelta_m", 0) %}
+                    <span style="color: {% if delta > 0 %}red{% elif delta < 0 %}green{% else %}black{% endif %}">
+                        {{ row.get("AltitudeDelta_formatted", row.get("AltitudeDelta_m", "")|format_altitude) }}
+                    </span>
+                </td>
                 <td>
                     {% if row.get("Pace_min_per_km") is not none %}
                         {{ '%.2f' % row.get("Pace_min_per_km") }} min/km
@@ -122,20 +129,45 @@
     {% endfor %}
 
     <h2>Detailed Data</h2>
-    {% for source, details in detailed.items() %}
+    {% for source, details in detailed.items()|sort(reverse=true) %}
         {% set date_match = source | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
         <details>
             <summary>Detailed for {{ date_match.group(1) if date_match else source }}</summary>
             <table>
                 <tr>
                     {% for key in details[0].keys() %}
-                        <th>{{ key }}</th>
+                        {% if not key.endswith('_formatted') and key != '_merge_info' and key != '_source_file' %}
+                            <th>{{ key|friendly_name }}</th>
+                        {% endif %}
                     {% endfor %}
                 </tr>
                 {% for row in details %}
                 <tr>
-                    {% for value in row.values() %}
-                        <td>{{ value }}</td>
+                    {% for key, value in row.items() %}
+                        {% if not key.endswith('_formatted') and key != '_merge_info' and key != '_source_file' %}
+                            {% set merge_info = row._merge_info.get(key, {"show": true, "rowspan": 1}) %}
+                            {% if merge_info.show %}
+                                <td{% if merge_info.rowspan > 1 %} rowspan="{{ merge_info.rowspan }}"{% endif %}>
+                                    {% if key == 'Time' or key == 'LapStartTime' %}
+                                        <span class="local-datetime">{{ value }}</span>
+                                    {% elif key == 'LapDistance_m' %}
+                                        {{ row.get('LapDistance_formatted', value|format_distance) }}
+                                    {% elif key == 'Distance_m' %}
+                                        {{ row.get('Distance_formatted', value|format_distance) }}
+                                    {% elif key == 'Altitude_m' %}
+                                        {{ row.get('Altitude_formatted', value|format_altitude) }}
+                                    {% elif key == 'AltitudeDelta_m' %}
+                                        <span style="color: {% if value > 0 %}red{% elif value < 0 %}green{% else %}black{% endif %}">
+                                            {{ row.get('AltitudeDelta_formatted', value|format_altitude) }}
+                                        </span>
+                                    {% elif key == 'LapTotalTime_s' %}
+                                        {{ row.get('LapTotalTime_formatted', value) }}
+                                    {% else %}
+                                        {{ value }}
+                                    {% endif %}
+                                </td>
+                            {% endif %}
+                        {% endif %}
                     {% endfor %}
                 </tr>
                 {% endfor %}
