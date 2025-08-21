@@ -21,158 +21,266 @@
     {%- endmacro %}
 
     <h1>Run Train Summary</h1>
-    <div id="chart-container">
-        <canvas id="lapChart"></canvas>
+    
+    <div class="container">
+        <div class="left-column">
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)" data-open="true">
+                    <span>Summary Data</span>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="section-content" style="display: block;">
+                    {% for file in file_summaries|sort(attribute='date', reverse=true) %}
+                        {% set all_laps = file_all_laps[file.source] %}
+                        {% set laps = file_valid_laps[file.source] %}
+                        {% set fastest = laps | min(attribute='LapTotalTime_s') %}
+                        {% set slowest = laps | max(attribute='LapTotalTime_s') %}
+                        
+                        <div class="section">
+                            <div class="section-header" onclick="toggleSection(this)" {% if loop.first %}data-open="true"{% endif %}>
+                                <span>{{ file.date }}</span>
+                                <span class="toggle-icon">▼</span>
+                            </div>
+                            <div class="section-content" {% if loop.first %}style="display: block;"{% endif %}>
+                                <div class="table-container">
+                                    <table>
+                                        <tr>
+                                            <th></th>
+                                            <th>Lap</th>
+                                            <th>Lap Start</th>
+                                            <th>Lap Distance</th>
+                                            <th>Altitude Δ</th>
+                                            <th>Pace</th>
+                                            <th>Lap time</th>
+                                        </tr>
+                                        {% for row in all_laps %}
+                                        <tr>
+                                            <td>{{ lap_icon(row, fastest, slowest) }}</td>
+                                            <td>{{ row.get("LapNumber", "") }}</td>
+                                            <td><span class="local-datetime">{{ row.get("LapStartTime", "") }}</span></td>
+                                            <td>{{ row.get("LapDistance_formatted", row.get("LapDistance_m", "")|format_distance) }}</td>
+                                            <td>
+                                                {% set delta = row.get("AltitudeDelta_m", 0) %}
+                                                <span style="color: {% if delta > 0 %}red{% elif delta < 0 %}green{% else %}black{% endif %}">
+                                                    {{ row.get("AltitudeDelta_formatted", row.get("AltitudeDelta_m", "")|format_altitude) }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                {% if row.get("Pace_min_per_km") is not none %}
+                                                    {{ '%.2f' % row.get("Pace_min_per_km") }} min/km
+                                                {% else %}-{% endif %}
+                                            </td>
+                                            <td>{{ row.get("LapTotalTime_formatted", "") }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </table>
+                                </div>
+                                <div style="padding: 15px; text-align: center; border-top: 1px solid #e9ecef;">
+                                    <a href="javascript:void(0)" class="detail-link" onclick="openDetailSection('{{ file.date }}')">→ View Details</a>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span>Detailed Data</span>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="section-content">
+                    {% for source, details in detailed.items()|sort(reverse=true) %}
+                        {% set date_match = source | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
+                        
+                        <div class="section" id="detail-{{ date_match.group(1) if date_match else source }}">
+                            <div class="section-header" onclick="toggleSection(this)">
+                                <span>{{ date_match.group(1) if date_match else source }}</span>
+                                <span class="toggle-icon">▼</span>
+                            </div>
+                            <div class="section-content">
+                                <div class="table-container">
+                                    <table>
+                                        <tr>
+                                            {% for key in details[0].keys() %}
+                                                {% if not key.endswith('_formatted') and key != '_merge_info' and key != '_source_file' %}
+                                                    <th>{{ key|friendly_name }}</th>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </tr>
+                                        {% for row in details %}
+                                        <tr>
+                                            {% for key, value in row.items() %}
+                                                {% if not key.endswith('_formatted') and key != '_merge_info' and key != '_source_file' %}
+                                                    {% set merge_info = row._merge_info.get(key, {"show": true, "rowspan": 1}) %}
+                                                    {% if merge_info.show %}
+                                                        <td{% if merge_info.rowspan > 1 %} rowspan="{{ merge_info.rowspan }}"{% endif %}>
+                                                            {% if key == 'Time' or key == 'LapStartTime' %}
+                                                                <span class="local-datetime">{{ value }}</span>
+                                                            {% elif key == 'LapDistance_m' %}
+                                                                {{ row.get('LapDistance_formatted', value|format_distance) }}
+                                                            {% elif key == 'Distance_m' %}
+                                                                {{ row.get('Distance_formatted', value|format_distance) }}
+                                                            {% elif key == 'Altitude_m' %}
+                                                                {{ row.get('Altitude_formatted', value|format_altitude) }}
+                                                            {% elif key == 'AltitudeDelta_m' %}
+                                                                <span style="color: {% if value > 0 %}red{% elif value < 0 %}green{% else %}black{% endif %}">
+                                                                    {{ row.get('AltitudeDelta_formatted', value|format_altitude) }}
+                                                                </span>
+                                                            {% elif key == 'LapTotalTime_s' %}
+                                                                {{ row.get('LapTotalTime_formatted', value) }}
+                                                            {% else %}
+                                                                {{ value }}
+                                                            {% endif %}
+                                                        </td>
+                                                    {% endif %}
+                                                {% endif %}
+                                            {% endfor %}
+                                        </tr>
+                                        {% endfor %}
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="right-column">
+            <div id="chart-container">
+                <h2>Performance Chart</h2>
+                <canvas id="lapChart"></canvas>
+            </div>
+
+            <div class="records-section">
+                <h2>Records</h2>
+                <table>
+                    <tr>
+                        <th>Concept</th>
+                        <th>Value</th>
+                        <th>Date</th>
+                    </tr>
+                    <tr>
+                        <td>Fastest Lap</td>
+                        <td>
+                            {% if fastest_lap %}
+                                {{ fastest_lap.LapTotalTime_formatted }}
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            {% if fastest_lap %}
+                                {% set date_match = fastest_lap._source_file | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
+                                {{ date_match.group(1) if date_match else fastest_lap._source_file }}
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Slowest Lap</td>
+                        <td>
+                            {% if slowest_lap %}
+                                {{ slowest_lap.LapTotalTime_formatted }}
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            {% if slowest_lap %}
+                                {% set date_match = slowest_lap._source_file | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
+                                {{ date_match.group(1) if date_match else slowest_lap._source_file }}
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Longest Distance</td>
+                        <td>
+                            {% if longest_distance_file %}
+                                {{ longest_distance_file.total_distance_formatted }}
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            {% if longest_distance_file %}
+                                {{ longest_distance_file.date }}
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Longest Time</td>
+                        <td>
+                            {% if longest_time_file %}
+                                {{ longest_time_file.total_time_formatted }}
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            {% if longest_time_file %}
+                                {{ longest_time_file.date }}
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
     </div>
 
-    <h2>Records</h2>
-    <table>
-        <tr>
-            <th>Concept</th>
-            <th>Value</th>
-            <th>Date</th>
-        </tr>
-        <tr>
-            <td>Fastest Lap</td>
-            <td>
-                {% if fastest_lap %}
-                    {{ fastest_lap.LapTotalTime_formatted }}
-                {% else %}-{% endif %}
-            </td>
-            <td>
-                {% if fastest_lap %}
-                    {% set date_match = fastest_lap._source_file | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
-                    {{ date_match.group(1) if date_match else fastest_lap._source_file }}
-                {% else %}-{% endif %}
-            </td>
-        </tr>
-        <tr>
-            <td>Slowest Lap</td>
-            <td>
-                {% if slowest_lap %}
-                    {{ slowest_lap.LapTotalTime_formatted }}
-                {% else %}-{% endif %}
-            </td>
-            <td>
-                {% if slowest_lap %}
-                    {% set date_match = slowest_lap._source_file | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
-                    {{ date_match.group(1) if date_match else slowest_lap._source_file }}
-                {% else %}-{% endif %}
-            </td>
-        </tr>
-        <tr>
-            <td>Longest Distance</td>
-            <td>
-                {% if longest_distance_file %}
-                    {{ longest_distance_file.total_distance_formatted }}
-                {% else %}-{% endif %}
-            </td>
-            <td>
-                {% if longest_distance_file %}
-                    {{ longest_distance_file.date }}
-                {% else %}-{% endif %}
-            </td>
-        </tr>
-        <tr>
-            <td>Longest Time</td>
-            <td>
-                {% if longest_time_file %}
-                    {{ longest_time_file.total_time_formatted }}
-                {% else %}-{% endif %}
-            </td>
-            <td>
-                {% if longest_time_file %}
-                    {{ longest_time_file.date }}
-                {% else %}-{% endif %}
-            </td>
-        </tr>
-    </table>
+    <script>
+        function toggleSection(header) {
+            const content = header.nextElementSibling;
+            const icon = header.querySelector('.toggle-icon');
+            
+            if (content.style.display === 'none' || content.style.display === '') {
+                content.style.display = 'block';
+                icon.textContent = '▼';
+                header.classList.remove('collapsed');
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▶';
+                header.classList.add('collapsed');
+            }
+        }
+        
+        function openDetailSection(date) {
+            // First, find and open the main Detailed Data section
+            const detailedDataHeaders = document.querySelectorAll('.section-header');
+            let detailedDataSection = null;
+            
+            for (let header of detailedDataHeaders) {
+                if (header.querySelector('span').textContent.trim() === 'Detailed Data') {
+                    detailedDataSection = header;
+                    break;
+                }
+            }
+            
+            if (detailedDataSection && (detailedDataSection.nextElementSibling.style.display === 'none' || detailedDataSection.nextElementSibling.style.display === '')) {
+                toggleSection(detailedDataSection);
+            }
+            
+            // Then find and open the specific date section
+            const targetSection = document.getElementById('detail-' + date);
+            if (targetSection) {
+                const header = targetSection.querySelector('.section-header');
+                if (header.nextElementSibling.style.display === 'none' || header.nextElementSibling.style.display === '') {
+                    toggleSection(header);
+                }
+                // Scroll to the section
+                targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
 
-    <h2>Summary Data</h2>
-    {% for file in file_summaries|sort(attribute='date', reverse=true) %}
-        {% set all_laps = file_all_laps[file.source] %}
-        {% set laps = file_valid_laps[file.source] %}
-        {% set fastest = laps | min(attribute='LapTotalTime_s') %}
-        {% set slowest = laps | max(attribute='LapTotalTime_s') %}
-        <h3>{{ file.date }}</h3>
-        <table>
-            <tr>
-                <th></th>
-                <th>Lap</th>
-                <th>Lap Start</th>
-                <th>Lap Distance</th>
-                <th>Altitude Δ</th>
-                <th>Pace</th>
-                <th>Lap time</th>
-            </tr>
-            {% for row in all_laps %}
-            <tr>
-                <td>{{ lap_icon(row, fastest, slowest) }}</td>
-                <td>{{ row.get("LapNumber", "") }}</td>
-                <td><span class="local-datetime">{{ row.get("LapStartTime", "") }}</span></td>
-                <td>{{ row.get("LapDistance_formatted", row.get("LapDistance_m", "")|format_distance) }}</td>
-                <td>
-                    {% set delta = row.get("AltitudeDelta_m", 0) %}
-                    <span style="color: {% if delta > 0 %}red{% elif delta < 0 %}green{% else %}black{% endif %}">
-                        {{ row.get("AltitudeDelta_formatted", row.get("AltitudeDelta_m", "")|format_altitude) }}
-                    </span>
-                </td>
-                <td>
-                    {% if row.get("Pace_min_per_km") is not none %}
-                        {{ '%.2f' % row.get("Pace_min_per_km") }} min/km
-                    {% else %}-{% endif %}
-                </td>
-                <td>{{ row.get("LapTotalTime_formatted", "") }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-    {% endfor %}
-
-    <h2>Detailed Data</h2>
-    {% for source, details in detailed.items()|sort(reverse=true) %}
-        {% set date_match = source | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
-        <details>
-            <summary>Detailed for {{ date_match.group(1) if date_match else source }}</summary>
-            <table>
-                <tr>
-                    {% for key in details[0].keys() %}
-                        {% if not key.endswith('_formatted') and key != '_merge_info' and key != '_source_file' %}
-                            <th>{{ key|friendly_name }}</th>
-                        {% endif %}
-                    {% endfor %}
-                </tr>
-                {% for row in details %}
-                <tr>
-                    {% for key, value in row.items() %}
-                        {% if not key.endswith('_formatted') and key != '_merge_info' and key != '_source_file' %}
-                            {% set merge_info = row._merge_info.get(key, {"show": true, "rowspan": 1}) %}
-                            {% if merge_info.show %}
-                                <td{% if merge_info.rowspan > 1 %} rowspan="{{ merge_info.rowspan }}"{% endif %}>
-                                    {% if key == 'Time' or key == 'LapStartTime' %}
-                                        <span class="local-datetime">{{ value }}</span>
-                                    {% elif key == 'LapDistance_m' %}
-                                        {{ row.get('LapDistance_formatted', value|format_distance) }}
-                                    {% elif key == 'Distance_m' %}
-                                        {{ row.get('Distance_formatted', value|format_distance) }}
-                                    {% elif key == 'Altitude_m' %}
-                                        {{ row.get('Altitude_formatted', value|format_altitude) }}
-                                    {% elif key == 'AltitudeDelta_m' %}
-                                        <span style="color: {% if value > 0 %}red{% elif value < 0 %}green{% else %}black{% endif %}">
-                                            {{ row.get('AltitudeDelta_formatted', value|format_altitude) }}
-                                        </span>
-                                    {% elif key == 'LapTotalTime_s' %}
-                                        {{ row.get('LapTotalTime_formatted', value) }}
-                                    {% else %}
-                                        {{ value }}
-                                    {% endif %}
-                                </td>
-                            {% endif %}
-                        {% endif %}
-                    {% endfor %}
-                </tr>
-                {% endfor %}
-            </table>
-        </details>
-    {% endfor %}
+        // Initialize collapsed state
+        document.addEventListener('DOMContentLoaded', function() {
+            const sections = document.querySelectorAll('.section-content');
+            sections.forEach(function(section) {
+                const header = section.previousElementSibling;
+                if (!header.hasAttribute('data-open')) {
+                    section.style.display = 'none';
+                    const icon = header.querySelector('.toggle-icon');
+                    if (icon) {
+                        icon.textContent = '▶';
+                    }
+                    header.classList.add('collapsed');
+                } else {
+                    section.style.display = 'block';
+                }
+            });
+        });
+    </script>
 </body>
 </html>

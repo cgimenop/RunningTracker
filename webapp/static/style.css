@@ -1,49 +1,120 @@
 body {
-    font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+    font-family: Arial, sans-serif;
     background: #f7f9fb;
     color: #222;
     margin: 0;
-    padding: 0;
+    padding: 20px;
 }
 
-h1, h2, h3 {
+* {
+    font-family: Arial, sans-serif;
+}
+
+h1 {
     color: #2a4d69;
-    margin-top: 2em;
-    margin-bottom: 0.5em;
+    text-align: center;
+    margin-bottom: 30px;
+    font-family: Arial, sans-serif;
 }
 
-#chart-container {
-    width: 95vw;
-    max-width: 900px;
-    margin: 2em auto 2em auto;
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 2px 12px rgba(44,62,80,0.08);
-    padding: 2em 2em 1em 2em;
+h2, h3 {
+    color: #2a4d69;
+    margin-top: 0;
+    font-family: Arial, sans-serif;
 }
 
-table {
-    width: 95vw;
-    max-width: 900px;
-    margin: 1.5em auto;
-    border-collapse: separate;
-    border-spacing: 0;
+.container {
+    display: flex;
+    gap: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+    min-height: 80vh;
+}
+
+.left-column {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 90vh;
+}
+
+.right-column {
+    flex: 0 0 400px;
+    position: sticky;
+    top: 20px;
+    height: fit-content;
+}
+
+.section {
     background: #fff;
+    margin-bottom: 15px;
     border-radius: 12px;
     box-shadow: 0 2px 12px rgba(44,62,80,0.08);
     overflow: hidden;
 }
 
+.section-header {
+    background: #e9f1fa;
+    padding: 15px 20px;
+    cursor: pointer;
+    border-bottom: 1px solid #b3c6e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    color: #2a4d69;
+    font-family: Arial, sans-serif;
+}
+
+.section-header:hover {
+    background: #d4e6f7;
+}
+
+.section-content {
+    padding: 0;
+    display: none;
+}
+
+.toggle-icon {
+    font-size: 14px;
+    transition: transform 0.3s;
+    font-family: Arial, sans-serif;
+}
+
+.collapsed .toggle-icon {
+    transform: rotate(-90deg);
+}
+
+.table-container {
+    overflow: auto;
+    max-height: 400px;
+}
+
+table {
+    width: 100%;
+    min-width: 600px;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: #fff;
+    font-family: Arial, sans-serif;
+}
+
 th, td {
-    padding: 0.9em 1.2em;
+    padding: 8px 12px;
     text-align: left;
+    border-bottom: 1px solid #e9ecef;
+    white-space: nowrap;
+    font-family: Arial, sans-serif;
 }
 
 th {
-    background: #e9f1fa;
+    background: #f8f9fa;
     color: #2a4d69;
     font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 10;
     border-bottom: 2px solid #b3c6e0;
+    font-family: Arial, sans-serif;
 }
 
 tr:nth-child(even) td {
@@ -54,36 +125,72 @@ tr:hover td {
     background: #e3f0ff;
 }
 
-details {
-    margin: 1.5em auto;
-    width: 95vw;
-    max-width: 900px;
+#chart-container {
     background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(44,62,80,0.06);
-    padding: 0.5em 1em 1em 1em;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(44,62,80,0.08);
+    margin-bottom: 20px;
 }
 
-summary {
-    font-size: 1.1em;
-    font-weight: bold;
-    color: #3867d6;
-    cursor: pointer;
-    outline: none;
-    padding: 0.5em 0;
+#lapChart {
+    max-width: 100%;
+    height: 300px;
 }
 
-summary::-webkit-details-marker {
+.records-section {
+    background: #fff;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(44,62,80,0.08);
+}
+
+.detail-link {
     color: #3867d6;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: Arial, sans-serif;
+    display: inline-block;
+    padding: 8px 16px;
+    border: 1px solid #3867d6;
+    border-radius: 4px;
+    transition: all 0.3s;
+}
+
+.detail-link:hover {
+    background-color: #3867d6;
+    color: white;
+    text-decoration: none;
+}
+
+.local-datetime {
+    font-family: Arial, sans-serif;
+}
+
+@media (max-width: 1200px) {
+    .container {
+        flex-direction: column;
+    }
+    
+    .right-column {
+        flex: none;
+        position: static;
+    }
 }
 
 @media (max-width: 600px) {
-    #chart-container, table, details {
-        width: 99vw;
-        padding: 0.5em;
+    .container {
+        padding: 10px;
+        gap: 10px;
     }
+    
     th, td {
-        padding: 0.5em 0.5em;
-        font-size: 0.98em;
+        padding: 6px 8px;
+        font-size: 0.9em;
+    }
+    
+    .section-header {
+        padding: 12px 15px;
     }
 }
