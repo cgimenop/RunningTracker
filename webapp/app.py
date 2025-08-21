@@ -1,9 +1,11 @@
 import re
 import os
+import logging
 from flask import Flask, render_template
 from pymongo import MongoClient
 from collections import defaultdict
 from datetime import timedelta
+from logging_config import setup_webapp_logging
 from const import (MERGE_COLUMNS, FRIENDLY_COLUMN_NAMES, DETAILED_DATA_SAMPLE_INTERVAL, MIN_VALID_LAP_DISTANCE,
                    COLLECTION_SUMMARY, COLLECTION_DETAILED, COL_ID, COL_SOURCE_FILE, COL_LAP_TOTAL_TIME_S,
                    COL_LAP_DISTANCE_M, COL_LAP_NUMBER, COL_ALTITUDE_M, COL_ALTITUDE_DELTA_M, COL_DISTANCE_M,
@@ -11,6 +13,9 @@ from const import (MERGE_COLUMNS, FRIENDLY_COLUMN_NAMES, DETAILED_DATA_SAMPLE_IN
                    COL_ALTITUDE_DELTA_FORMATTED, COL_DISTANCE_FORMATTED, FIELD_SOURCE, FIELD_DATE,
                    FIELD_TOTAL_DISTANCE, FIELD_TOTAL_DISTANCE_FORMATTED, FIELD_TOTAL_TIME,
                    FIELD_TOTAL_TIME_FORMATTED, FIELD_MERGE_INFO)
+
+# Setup logging
+logger = setup_webapp_logging()
 
 app = Flask(__name__)
 
@@ -21,8 +26,15 @@ if env == 'development':
 else:
     from config.production import DEBUG, MONGO_URI, DATABASE_NAME
 
-client = MongoClient(MONGO_URI)
-db = client[DATABASE_NAME]
+try:
+    client = MongoClient(MONGO_URI)
+    db = client[DATABASE_NAME]
+    # Test connection
+    client.server_info()
+    logger.info(f"Successfully connected to MongoDB: {DATABASE_NAME}")
+except Exception as e:
+    logger.error(f"Failed to connect to MongoDB: {e}")
+    raise
 
 @app.template_filter('regex_search')
 def regex_search(s, pattern):
@@ -238,10 +250,20 @@ def load_detailed_data():
 
 @app.route("/")
 def index():
-    grouped, all_laps = load_summary_data()
-    file_summaries, file_all_laps, file_valid_laps = calculate_file_summaries(grouped)
-    fastest_lap, slowest_lap, longest_distance_file, longest_time_file = find_records(all_laps, file_summaries)
-    detailed_grouped = load_detailed_data()
+    try:
+        logger.info("Processing index page request")
+        grouped, all_laps = load_summary_data()
+        file_summaries, file_all_laps, file_valid_laps = calculate_file_summaries(grouped)
+        fastest_lap, slowest_lap, longest_distance_file, longest_time_file = find_records(all_laps, file_summaries)
+        detailed_grouped = load_detailed_data()
+        logger.info(f"Successfully processed data for {len(file_summaries)} files")
+    except Exception as e:
+        logger.error(f"Error processing index page: {e}")
+        # Return empty data on error
+        grouped, all_laps = defaultdict(list), []
+        file_summaries, file_all_laps, file_valid_laps = [], {}, {}
+        fastest_lap = slowest_lap = longest_distance_file = longest_time_file = None
+        detailed_grouped = defaultdict(list)
     
     return render_template(
         "index.html",

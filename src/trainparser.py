@@ -2,14 +2,20 @@ import argparse
 from defusedxml import ElementTree as ET
 import pandas as pd
 import os
+import logging
 from openpyxl import load_workbook
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
+
+# Configure logging
+from logging_config import setup_logging
+logger = setup_logging()
 
 
 def calc_pace(total_time_s, distance_m):
     if total_time_s and distance_m and distance_m > 0 and total_time_s > 0:
         return (total_time_s / (distance_m / 1000.0)) / 60.0
+    logger.debug(f"Invalid pace calculation inputs: time={total_time_s}, distance={distance_m}")
     return None
 
 
@@ -18,8 +24,16 @@ def parse_tcx_detailed(tcx_file):
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
         tree = ET.parse(tcx_file)
         root = tree.getroot()
+        logger.info(f"Successfully parsed TCX file for detailed analysis: {tcx_file}")
     except ET.ParseError as e:
+        logger.error(f"XML parsing error in {tcx_file}: {e}")
         raise ValueError(f"Invalid XML file: {e}")
+    except FileNotFoundError as e:
+        logger.error(f"TCX file not found: {tcx_file}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error parsing {tcx_file}: {e}")
+        raise
 
     rows = []
     lap_counter = 0
@@ -98,8 +112,16 @@ def parse_tcx_summary(tcx_file):
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
         tree = ET.parse(tcx_file)
         root = tree.getroot()
+        logger.info(f"Successfully parsed TCX file for summary analysis: {tcx_file}")
     except ET.ParseError as e:
+        logger.error(f"XML parsing error in {tcx_file}: {e}")
         raise ValueError(f"Invalid XML file: {e}")
+    except FileNotFoundError as e:
+        logger.error(f"TCX file not found: {tcx_file}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error parsing {tcx_file}: {e}")
+        raise
 
     rows = []
     lap_counter = 0
@@ -139,33 +161,48 @@ def get_first_lap_date(tcx_file):
         # amazonq-ignore-next-line
         first_lap = root.find(".//tcx:Lap", ns)
         if first_lap is not None and "StartTime" in first_lap.attrib:
-            return first_lap.attrib["StartTime"].split("T")[0]
-    except ET.ParseError:
-        pass
+            date = first_lap.attrib["StartTime"].split("T")[0]
+            logger.debug(f"Extracted date {date} from {tcx_file}")
+            return date
+        logger.warning(f"No lap with StartTime found in {tcx_file}")
+    except ET.ParseError as e:
+        logger.error(f"XML parsing error while extracting date from {tcx_file}: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error extracting date from {tcx_file}: {e}")
     return "UnknownDate"
 
 
 def write_to_excel(df, output_file, sheet_name):
-    if not os.path.exists(output_file):
-        with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
-    else:
-        book = load_workbook(output_file)
-        existing_sheets = book.sheetnames
+    try:
+        if not os.path.exists(output_file):
+            with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            logger.info(f"Created new Excel file: {output_file} with sheet: {sheet_name}")
+        else:
+            book = load_workbook(output_file)
+            existing_sheets = book.sheetnames
 
-        # Remove the sheet if it exists (case-insensitive)
-        match_sheet = None
-        for s in existing_sheets:
-            if s.lower() == sheet_name.lower():
-                match_sheet = s
-                break
+            # Remove the sheet if it exists (case-insensitive)
+            match_sheet = None
+            for s in existing_sheets:
+                if s.lower() == sheet_name.lower():
+                    match_sheet = s
+                    break
 
-        if match_sheet:
-            del book[match_sheet]
-            book.save(output_file)  # Save immediately after deletion!
+            if match_sheet:
+                del book[match_sheet]
+                book.save(output_file)  # Save immediately after deletion!
+                logger.info(f"Replaced existing sheet: {match_sheet} in {output_file}")
 
-        with pd.ExcelWriter(output_file, mode="a", engine="openpyxl") as writer:
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            with pd.ExcelWriter(output_file, mode="a", engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            logger.info(f"Added sheet: {sheet_name} to existing file: {output_file}")
+    except PermissionError as e:
+        logger.error(f"Permission denied writing to Excel file {output_file}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error writing to Excel file {output_file}: {e}")
+        raise
 
 
 def push_to_mongo(df, collection, unique_keys):
@@ -181,6 +218,7 @@ def push_to_mongo(df, collection, unique_keys):
 
 
 def process_file(tcx_file, args, mongo_client=None):
+    logger.info(f"Starting processing of file: {tcx_file}")
     print(f"Processing {tcx_file}")
 
     date_str = get_first_lap_date(tcx_file)
@@ -283,9 +321,15 @@ def main():
             mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
             # Trigger a server selection to verify connection
             mongo_client.server_info()
+            logger.info(f"Successfully connected to MongoDB at {args.mongo_uri}")
             print("Connected to MongoDB")
-        except ServerSelectionTimeoutError:
+        except ServerSelectionTimeoutError as e:
+            logger.error(f"MongoDB connection timeout: {args.mongo_uri} - {e}")
             print("ERROR: Could not connect to MongoDB. Please check your connection.")
+            return
+        except Exception as e:
+            logger.error(f"Unexpected MongoDB connection error: {e}")
+            print(f"ERROR: MongoDB connection failed: {e}")
             return
 
     try:
@@ -304,6 +348,7 @@ def main():
                     print(f"No .tcx files found in folder '{args.input_path}'.")
                     return
             except (PermissionError, OSError) as e:
+                logger.error(f"Directory access error: {args.input_path} - {e}")
                 print(f"ERROR: Cannot access directory '{args.input_path}': {e}")
                 return
 
