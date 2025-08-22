@@ -130,32 +130,3 @@ class TestWebappRecords:
         assert longest_time is None
 
 
-class TestWebappDatabase:
-    """Test webapp database operations"""
-    
-    @patch('app.get_db_connection')
-    def test_database_connection(self, mock_get_db):
-        """Test database connection management"""
-        mock_db = MagicMock()
-        mock_get_db.return_value = mock_db
-        
-        db = mock_get_db()
-        assert db is not None
-        mock_get_db.assert_called_once()
-    
-    @patch('app.load_summary_data')
-    def test_load_summary_data(self, mock_load):
-        """Test summary data loading"""
-        mock_load.return_value = ({}, [])
-        
-        grouped, all_laps = mock_load()
-        assert isinstance(grouped, dict)
-        assert isinstance(all_laps, list)
-    
-    @patch('app.load_detailed_data')
-    def test_load_detailed_data(self, mock_load):
-        """Test detailed data loading"""
-        mock_load.return_value = {}
-        
-        detailed = mock_load()
-        assert isinstance(detailed, dict)

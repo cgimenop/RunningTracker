@@ -64,5 +64,6 @@ config/
 # Coverage reports
 htmlcov/
 .coverage
+.coverage.*
 coverage.xml
 .pytest_cache/
