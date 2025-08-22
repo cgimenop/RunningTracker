@@ -2,6 +2,8 @@
 ![Tests](https://github.com/cgimenop/RunningTracker/workflows/Tests/badge.svg)
 ![Coverage](https://github.com/cgimenop/RunningTracker/workflows/Test%20Coverage/badge.svg)
 
+> **⚠️ AI-Generated Code Disclaimer**  
+> This project is heavily based on AI coding assistance using GitHub Copilot (ChatGPT-4) and Amazon Q (Claude Sonnet 4). It is intended for practice and learning purposes only.
 
 **A comprehensive running data analysis and visualization platform**
 
