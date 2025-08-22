@@ -7,10 +7,14 @@ from openpyxl import load_workbook
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 from pathlib import Path
+from collections import namedtuple
 
 # Configure logging
 from logging_config import setup_logging
 logger = setup_logging()
+
+# Define namedtuple for lap data to avoid multiple return values
+LapData = namedtuple('LapData', ['start_time', 'total_time_s', 'distance_m', 'pace'])
 
 
 
@@ -53,7 +57,7 @@ def calc_pace(total_time_s, distance_m):
         time_val = float(total_time_s) if total_time_s is not None else 0
         dist_val = float(distance_m) if distance_m is not None else 0
         if time_val > 0 and dist_val > 0:
-            return (time_val / (dist_val / 1000.0)) / 60.0
+            return (time_val / (dist_val / 1000.0)) * 60.0
     except (ValueError, TypeError):
         logger.debug(f"Invalid pace calculation inputs: time={sanitize_for_log(total_time_s)}, distance={sanitize_for_log(distance_m)}")
 
@@ -85,8 +89,8 @@ def _extract_lap_data(lap, ns):
             lap_start = None
     # Safely find XML elements with validation
     try:
-        lap_total_time = lap.find("tcx:TotalTimeSeconds", ns) if hasattr(lap, 'find') else None
-        lap_distance = lap.find("tcx:DistanceMeters", ns) if hasattr(lap, 'find') else None
+        lap_total_time = lap.find("tcx:TotalTimeSeconds", ns)
+        lap_distance = lap.find("tcx:DistanceMeters", ns)
     except (AttributeError, TypeError):
         lap_total_time = lap_distance = None
     
@@ -94,7 +98,7 @@ def _extract_lap_data(lap, ns):
     distance_m = _extract_float_from_element(lap_distance)
     pace = calc_pace(total_time_s, distance_m)
     
-    return lap_start, total_time_s, distance_m, pace
+    return LapData(lap_start, total_time_s, distance_m, pace)
 
 
 def _extract_trackpoint_data(tp, ns):
@@ -112,7 +116,7 @@ def _extract_trackpoint_data(tp, ns):
     }
     
     # Extract time with validation
-    time_elem = tp.find("tcx:Time", ns) if hasattr(tp, 'find') else None
+    time_elem = tp.find("tcx:Time", ns)
     if time_elem is not None and hasattr(time_elem, 'text'):
         # Validate text content to prevent injection
         text_content = time_elem.text
@@ -120,7 +124,7 @@ def _extract_trackpoint_data(tp, ns):
             data["Time"] = text_content
     
     # Extract position (latitude/longitude) with validation
-    pos_elem = tp.find("tcx:Position", ns) if hasattr(tp, 'find') else None
+    pos_elem = tp.find("tcx:Position", ns)
     if pos_elem is not None and hasattr(pos_elem, 'find'):
         try:
             lat_elem = pos_elem.find("tcx:LatitudeDegrees", ns)
@@ -132,8 +136,8 @@ def _extract_trackpoint_data(tp, ns):
     
     # Extract altitude and distance with validation
     try:
-        altitude_elem = tp.find("tcx:AltitudeMeters", ns) if hasattr(tp, 'find') else None
-        distance_elem = tp.find("tcx:DistanceMeters", ns) if hasattr(tp, 'find') else None
+        altitude_elem = tp.find("tcx:AltitudeMeters", ns)
+        distance_elem = tp.find("tcx:DistanceMeters", ns)
         data["Altitude_m"] = _extract_float_from_element(altitude_elem)
         data["Distance_m"] = _extract_float_from_element(distance_elem)
     except (AttributeError, TypeError):
@@ -166,17 +170,17 @@ def parse_tcx_detailed(tcx_file):
 
     for lap in root.findall(".//tcx:Lap", ns):
         lap_counter += 1
-        lap_start, total_time_s, distance_m, pace = _extract_lap_data(lap, ns)
+        lap_data = _extract_lap_data(lap, ns)
 
         for tp in lap.findall(".//tcx:Trackpoint", ns):
             trackpoint_data = _extract_trackpoint_data(tp, ns)
             
             row = {
                 "LapNumber": lap_counter,
-                "LapStartTime": lap_start,
-                "LapTotalTime_s": total_time_s,
-                "LapDistance_m": distance_m,
-                "Pace_min_per_km": pace,
+                "LapStartTime": lap_data.start_time,
+                "LapTotalTime_s": lap_data.total_time_s,
+                "LapDistance_m": lap_data.distance_m,
+                "Pace_min_per_km": lap_data.pace,
                 **trackpoint_data
             }
             rows.append(row)
@@ -196,7 +200,7 @@ def _parse_tcx_file(tcx_file, operation="analysis"):
             raise ValueError("Invalid namespace configuration")
         tree = ET.parse(tcx_file)
         root = tree.getroot()
-        logger.info(f"Successfully parsed TCX file for {operation}: {sanitize_for_log(tcx_file)}")
+        logger.info(f"Successfully parsed TCX file for {sanitize_for_log(operation)}: {sanitize_for_log(tcx_file)}")
         return root, ns
     except ET.ParseError as e:
         logger.error(f"XML parsing error in {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
@@ -216,14 +220,14 @@ def parse_tcx_summary(tcx_file):
 
     for lap in root.findall(".//tcx:Lap", ns):
         lap_counter += 1
-        lap_start, total_time_s, distance_m, pace = _extract_lap_data(lap, ns)
+        lap_data = _extract_lap_data(lap, ns)
 
         rows.append({
             "LapNumber": lap_counter,
-            "LapStartTime": lap_start,
-            "LapTotalTime_s": total_time_s,
-            "LapDistance_m": distance_m,
-            "Pace_min_per_km": pace,
+            "LapStartTime": lap_data.start_time,
+            "LapTotalTime_s": lap_data.total_time_s,
+            "LapDistance_m": lap_data.distance_m,
+            "Pace_min_per_km": lap_data.pace,
         })
 
     return pd.DataFrame(rows)
@@ -302,16 +306,37 @@ def _sanitize_mongo_value(value):
 
 def push_to_mongo(df, collection, unique_keys):
     """
-    Upsert each row in df to the mongo collection.
+    Upsert each row in df to the mongo collection using bulk operations.
     unique_keys: list of column names for the unique query filter.
     """
+    # Validate unique_keys to prevent injection
+    if not isinstance(unique_keys, list) or not all(isinstance(k, str) for k in unique_keys):
+        raise ValueError("Invalid unique_keys parameter")
+    
+    from pymongo import ReplaceOne
+    operations = []
     records = df.to_dict(orient="records")
+    
     for rec in records:
-        # Sanitize query values to prevent NoSQL injection
-        query = {k: _sanitize_mongo_value(rec.get(k)) for k in unique_keys}
-        # Sanitize record values
+        # Sanitize and validate query values
+        query = {}
+        for k in unique_keys:
+            if k in rec and rec[k] is not None:
+                sanitized_val = _sanitize_mongo_value(rec[k])
+                if sanitized_val is not None:
+                    query[k] = sanitized_val
+        
+        # Skip if no valid query keys
+        if not query:
+            continue
+            
+        # Sanitize all record values
         sanitized_rec = {k: _sanitize_mongo_value(v) for k, v in rec.items()}
-        collection.replace_one(query, sanitized_rec, upsert=True)
+        operations.append(ReplaceOne(query, sanitized_rec, upsert=True))
+    
+    # Execute bulk operations if any
+    if operations:
+        collection.bulk_write(operations)
 
 
 def process_file(tcx_file, args, mongo_client=None):
@@ -379,17 +404,8 @@ def process_file(tcx_file, args, mongo_client=None):
             safe_filename = _sanitize_mongo_value(filename)
             df["_source_file"] = safe_filename
 
-            # Convert DataFrame to dicts with updated keys
-            records = df.to_dict(orient="records")
-
-            for rec in records:
-                # Compose the filter query only with keys present in rec
-                query = {k: _sanitize_mongo_value(rec.get(k)) for k in unique_keys if rec.get(k) is not None}
-                # Include source file in query to avoid conflicts across files
-                query["_source_file"] = _sanitize_mongo_value(rec["_source_file"])
-                # Sanitize record values
-                sanitized_rec = {k: _sanitize_mongo_value(v) for k, v in rec.items()}
-                collection.replace_one(query, sanitized_rec, upsert=True)
+            # Use bulk operations for better performance
+            push_to_mongo(df, collection, unique_keys + ["_source_file"])
 
         print("✅ Data pushed to MongoDB")
 
