@@ -29,19 +29,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-test.txt
     
-    - name: Run tests
+    - name: Run tests with coverage
       run: |
-        python -m pytest src/test/test_trainparser.py -v
-        cd webapp && python -m pytest test/test_app.py -v
-    
-    - name: Run coverage analysis
-      run: |
-        python -m pytest --cov=src --cov-report=xml --cov-report=term src/test/test_trainparser.py
-        cd webapp && python -m pytest --cov=. --cov-report=xml --cov-report=term test/test_app.py
+        python -m pytest --cov=src --cov=webapp --cov-report=xml --cov-report=term
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
-        files: ./coverage.xml,./webapp/coverage.xml
+        files: ./coverage.xml
         fail_ci_if_error: false
         verbose: true
