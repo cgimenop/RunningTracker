@@ -12,6 +12,7 @@ from logging_config import setup_logging
 logger = setup_logging()
 
 
+
 def sanitize_for_log(value):
     """Sanitize input for logging to prevent log injection attacks"""
     if value is None:
@@ -179,6 +180,7 @@ def get_first_lap_date(tcx_file):
         logger.error(f"XML parsing error while extracting date from {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
     except Exception as e:
         logger.error(f"Unexpected error extracting date from {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
+
     return "UnknownDate"
 
 
@@ -331,6 +333,7 @@ def main():
             mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
             # Trigger a server selection to verify connection
             mongo_client.server_info()
+
             logger.info(f"Successfully connected to MongoDB at {sanitize_for_log(args.mongo_uri)}")
             print("Connected to MongoDB")
         except ServerSelectionTimeoutError as e:
@@ -359,7 +362,6 @@ def main():
                     return
             except (PermissionError, OSError) as e:
                 logger.error(f"Directory access error: {sanitize_for_log(args.input_path)} - {sanitize_for_log(e)}")
-                print(f"ERROR: Cannot access directory '{args.input_path}': {e}")
                 return
 
         for f in files:
