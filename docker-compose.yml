@@ -15,8 +15,10 @@ services:
       dockerfile: runningtracker.dockerfile
     image: trainparser:latest
     container_name: trainparser
+    restart: on-failure
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     volumes:
       - ./data:/data:ro       # Input TCX folder (read-only)
       - ./output:/output           # Excel output folder
@@ -42,8 +44,6 @@ services:
       - MONGO_URI=mongodb://mongodb:27017
     volumes:
       - ./webapp:/app  # Mount source for live reload
-
-
 
 volumes:
   mongo_data:
