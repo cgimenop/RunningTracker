@@ -1,0 +1,38 @@
+name: Auto PR to Feature Branches
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  create-prs:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: [ci_cd, loggers, performance, formatters]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create or update PR to ${{ matrix.branch }}
+        run: |
+          if git ls-remote --heads origin ${{ matrix.branch }} | grep -q ${{ matrix.branch }}; then
+            if gh pr list --base ${{ matrix.branch }} --head master --state open | grep -q .; then
+              echo "Updating existing PR"
+              gh pr edit --base ${{ matrix.branch }} --head master --body "Automated PR from master branch updates (updated $(date))"
+            else
+              echo "Creating new PR"
+              gh pr create \
+                --base ${{ matrix.branch }} \
+                --head master \
+                --title "Auto-sync: Master → ${{ matrix.branch }}" \
+                --body "Automated PR from master branch updates" \
+                --assignee ${{ github.actor }}
+            fi
+          else
+            echo "Branch ${{ matrix.branch }} does not exist, skipping"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
