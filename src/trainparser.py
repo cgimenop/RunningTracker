@@ -76,9 +76,19 @@ def _extract_lap_data(lap, ns):
     if not isinstance(ns, dict) or "tcx" not in ns:
         raise ValueError("Invalid namespace provided")
     
-    lap_start = lap.attrib.get("StartTime")
-    lap_total_time = lap.find("tcx:TotalTimeSeconds", ns)
-    lap_distance = lap.find("tcx:DistanceMeters", ns)
+    # Safely extract StartTime attribute with validation
+    lap_start = None
+    if hasattr(lap, 'attrib') and isinstance(lap.attrib, dict):
+        lap_start = lap.attrib.get("StartTime")
+        # Validate the StartTime format to prevent injection
+        if lap_start and not isinstance(lap_start, str):
+            lap_start = None
+    # Safely find XML elements with validation
+    try:
+        lap_total_time = lap.find("tcx:TotalTimeSeconds", ns) if hasattr(lap, 'find') else None
+        lap_distance = lap.find("tcx:DistanceMeters", ns) if hasattr(lap, 'find') else None
+    except (AttributeError, TypeError):
+        lap_total_time = lap_distance = None
     
     total_time_s = _extract_float_from_element(lap_total_time)
     distance_m = _extract_float_from_element(lap_distance)
@@ -101,22 +111,33 @@ def _extract_trackpoint_data(tp, ns):
         "Distance_m": None,
     }
     
-    # Extract time
-    time_elem = tp.find("tcx:Time", ns)
-    if time_elem is not None:
-        data["Time"] = time_elem.text
+    # Extract time with validation
+    time_elem = tp.find("tcx:Time", ns) if hasattr(tp, 'find') else None
+    if time_elem is not None and hasattr(time_elem, 'text'):
+        # Validate text content to prevent injection
+        text_content = time_elem.text
+        if isinstance(text_content, str):
+            data["Time"] = text_content
     
-    # Extract position (latitude/longitude)
-    pos_elem = tp.find("tcx:Position", ns)
-    if pos_elem is not None:
-        lat_elem = pos_elem.find("tcx:LatitudeDegrees", ns)
-        lon_elem = pos_elem.find("tcx:LongitudeDegrees", ns)
-        data["Latitude"] = _extract_float_from_element(lat_elem)
-        data["Longitude"] = _extract_float_from_element(lon_elem)
+    # Extract position (latitude/longitude) with validation
+    pos_elem = tp.find("tcx:Position", ns) if hasattr(tp, 'find') else None
+    if pos_elem is not None and hasattr(pos_elem, 'find'):
+        try:
+            lat_elem = pos_elem.find("tcx:LatitudeDegrees", ns)
+            lon_elem = pos_elem.find("tcx:LongitudeDegrees", ns)
+            data["Latitude"] = _extract_float_from_element(lat_elem)
+            data["Longitude"] = _extract_float_from_element(lon_elem)
+        except (AttributeError, TypeError):
+            data["Latitude"] = data["Longitude"] = None
     
-    # Extract altitude and distance
-    data["Altitude_m"] = _extract_float_from_element(tp.find("tcx:AltitudeMeters", ns))
-    data["Distance_m"] = _extract_float_from_element(tp.find("tcx:DistanceMeters", ns))
+    # Extract altitude and distance with validation
+    try:
+        altitude_elem = tp.find("tcx:AltitudeMeters", ns) if hasattr(tp, 'find') else None
+        distance_elem = tp.find("tcx:DistanceMeters", ns) if hasattr(tp, 'find') else None
+        data["Altitude_m"] = _extract_float_from_element(altitude_elem)
+        data["Distance_m"] = _extract_float_from_element(distance_elem)
+    except (AttributeError, TypeError):
+        data["Altitude_m"] = data["Distance_m"] = None
     
     return data
 
@@ -166,6 +187,9 @@ def parse_tcx_detailed(tcx_file):
 def _parse_tcx_file(tcx_file, operation="analysis"):
     """Common XML parsing logic for TCX files"""
     try:
+        # Validate file path to prevent path traversal
+        if not _validate_safe_path(tcx_file):
+            raise ValueError(f"Invalid or unsafe file path: {tcx_file}")
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
         # Validate namespace
         if not isinstance(ns, dict) or "tcx" not in ns:
@@ -229,6 +253,11 @@ def get_first_lap_date(tcx_file):
 
 
 def write_to_excel(df, output_file, sheet_name):
+    # Validate output file path to prevent path traversal
+    if not _validate_safe_path(output_file):
+        logger.error(f"Invalid or unsafe output path: {sanitize_for_log(output_file)}")
+        raise ValueError("Invalid output file path")
+    
     try:
         if not os.path.exists(output_file):
             with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
@@ -316,21 +345,39 @@ def process_file(tcx_file, args, mongo_client=None):
 
     # Push to MongoDB
     if mongo_client:
-        db = mongo_client["RunningTracker"]
+        # Validate database name to prevent injection
+        db_name = "RunningTracker"
+        if not isinstance(db_name, str) or not db_name.isalnum():
+            logger.error("Invalid database name")
+            return
+        db = mongo_client[db_name]
+        
         for mode_name, df in dfs_to_mongo:
+            # Validate collection name to prevent injection
+            if not isinstance(mode_name, str) or mode_name not in ["summary", "detailed"]:
+                logger.error(f"Invalid collection name: {sanitize_for_log(mode_name)}")
+                continue
             collection = db[mode_name]
 
-            # Determine unique keys for upsert based on mode
+            # Determine unique keys for upsert based on mode with validation
+            allowed_summary_keys = ["LapStartTime", "LapNumber", "LapTotalTime_s", "LapDistance_m", "Pace_min_per_km"]
+            allowed_detailed_keys = ["LapStartTime", "LapNumber", "Time"]
+            
             if mode_name == "summary":
-                unique_keys = ["LapStartTime", "LapNumber", "LapTotalTime_s", "LapDistance_m", "Pace_min_per_km"]
+                unique_keys = [k for k in allowed_summary_keys if isinstance(k, str) and k.replace('_', '').isalnum()]
             else:  # detailed
-                unique_keys = ["LapStartTime", "LapNumber", "Time"]
+                unique_keys = [k for k in allowed_detailed_keys if isinstance(k, str) and k.replace('_', '').isalnum()]
 
             # Add filename to each record for uniqueness and traceability
             filename = os.path.basename(tcx_file)
             if not _validate_safe_path(filename):
                 filename = 'sanitized_file.tcx'
-            df["_source_file"] = filename
+            # Validate filename to prevent injection
+            if not isinstance(filename, str) or len(filename) > 255:
+                filename = 'invalid_file.tcx'
+            # Sanitize filename for MongoDB
+            safe_filename = _sanitize_mongo_value(filename)
+            df["_source_file"] = safe_filename
 
             # Convert DataFrame to dicts with updated keys
             records = df.to_dict(orient="records")
@@ -358,6 +405,10 @@ def _discover_tcx_files(input_path):
         files = []
         for f in os.listdir(input_path):
             if f.lower().endswith(".tcx"):
+                # Validate filename to prevent path traversal
+                if not _validate_safe_path(f) or '..' in f or '/' in f or '\\' in f:
+                    logger.warning(f"Skipping unsafe filename: {sanitize_for_log(f)}")
+                    continue
                 full_path = os.path.join(input_path, f)
                 if _validate_safe_path(full_path, input_path) and os.path.isfile(full_path):
                     files.append(full_path)
