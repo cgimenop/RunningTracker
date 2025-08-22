@@ -13,9 +13,13 @@ logger = setup_logging()
 
 
 def calc_pace(total_time_s, distance_m):
-    if total_time_s and distance_m and distance_m > 0 and total_time_s > 0:
-        return (total_time_s / (distance_m / 1000.0)) / 60.0
-    logger.debug(f"Invalid pace calculation inputs: time={total_time_s}, distance={distance_m}")
+    try:
+        time_val = float(total_time_s) if total_time_s is not None else 0
+        dist_val = float(distance_m) if distance_m is not None else 0
+        if time_val > 0 and dist_val > 0:
+            return (time_val / (dist_val / 1000.0)) / 60.0
+    except (ValueError, TypeError):
+        logger.debug(f"Invalid pace calculation inputs: time={total_time_s}, distance={distance_m}")
     return None
 
 
