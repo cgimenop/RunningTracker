@@ -34,4 +34,4 @@ jobs:
     
     - name: Run unified tests
       run: |
-        python -m pytest tests/ -v
+        python run_github_tests.py
