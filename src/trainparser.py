@@ -12,10 +12,21 @@ from logging_config import setup_logging
 logger = setup_logging()
 
 
+
+def sanitize_for_log(value):
+    """Sanitize input for logging to prevent log injection attacks"""
+    if value is None:
+        return "None"
+    # Convert to string and remove/replace dangerous characters
+    sanitized = str(value).replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+    # Limit length to prevent log flooding
+    return sanitized[:200] + '...' if len(sanitized) > 200 else sanitized
+
+
 def calc_pace(total_time_s, distance_m):
     if total_time_s and distance_m and distance_m > 0 and total_time_s > 0:
         return (total_time_s / (distance_m / 1000.0)) / 60.0
-    logger.debug(f"Invalid pace calculation inputs: time={total_time_s}, distance={distance_m}")
+    logger.debug(f"Invalid pace calculation inputs: time={sanitize_for_log(total_time_s)}, distance={sanitize_for_log(distance_m)}")
     return None
 
 
@@ -24,15 +35,15 @@ def parse_tcx_detailed(tcx_file):
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
         tree = ET.parse(tcx_file)
         root = tree.getroot()
-        logger.info(f"Successfully parsed TCX file for detailed analysis: {tcx_file}")
+        logger.info(f"Successfully parsed TCX file for detailed analysis: {sanitize_for_log(tcx_file)}")
     except ET.ParseError as e:
-        logger.error(f"XML parsing error in {tcx_file}: {e}")
+        logger.error(f"XML parsing error in {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise ValueError(f"Invalid XML file: {e}")
     except FileNotFoundError as e:
-        logger.error(f"TCX file not found: {tcx_file}")
+        logger.error(f"TCX file not found: {sanitize_for_log(tcx_file)}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error parsing {tcx_file}: {e}")
+        logger.error(f"Unexpected error parsing {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise
 
     rows = []
@@ -112,15 +123,15 @@ def parse_tcx_summary(tcx_file):
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
         tree = ET.parse(tcx_file)
         root = tree.getroot()
-        logger.info(f"Successfully parsed TCX file for summary analysis: {tcx_file}")
+        logger.info(f"Successfully parsed TCX file for summary analysis: {sanitize_for_log(tcx_file)}")
     except ET.ParseError as e:
-        logger.error(f"XML parsing error in {tcx_file}: {e}")
+        logger.error(f"XML parsing error in {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise ValueError(f"Invalid XML file: {e}")
     except FileNotFoundError as e:
-        logger.error(f"TCX file not found: {tcx_file}")
+        logger.error(f"TCX file not found: {sanitize_for_log(tcx_file)}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error parsing {tcx_file}: {e}")
+        logger.error(f"Unexpected error parsing {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise
 
     rows = []
@@ -162,13 +173,14 @@ def get_first_lap_date(tcx_file):
         first_lap = root.find(".//tcx:Lap", ns)
         if first_lap is not None and "StartTime" in first_lap.attrib:
             date = first_lap.attrib["StartTime"].split("T")[0]
-            logger.debug(f"Extracted date {date} from {tcx_file}")
+            logger.debug(f"Extracted date {sanitize_for_log(date)} from {sanitize_for_log(tcx_file)}")
             return date
-        logger.warning(f"No lap with StartTime found in {tcx_file}")
+        logger.warning(f"No lap with StartTime found in {sanitize_for_log(tcx_file)}")
     except ET.ParseError as e:
-        logger.error(f"XML parsing error while extracting date from {tcx_file}: {e}")
+        logger.error(f"XML parsing error while extracting date from {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
     except Exception as e:
-        logger.error(f"Unexpected error extracting date from {tcx_file}: {e}")
+        logger.error(f"Unexpected error extracting date from {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
+
     return "UnknownDate"
 
 
@@ -177,7 +189,7 @@ def write_to_excel(df, output_file, sheet_name):
         if not os.path.exists(output_file):
             with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
-            logger.info(f"Created new Excel file: {output_file} with sheet: {sheet_name}")
+            logger.info(f"Created new Excel file: {sanitize_for_log(output_file)} with sheet: {sanitize_for_log(sheet_name)}")
         else:
             book = load_workbook(output_file)
             existing_sheets = book.sheetnames
@@ -192,16 +204,16 @@ def write_to_excel(df, output_file, sheet_name):
             if match_sheet:
                 del book[match_sheet]
                 book.save(output_file)  # Save immediately after deletion!
-                logger.info(f"Replaced existing sheet: {match_sheet} in {output_file}")
+                logger.info(f"Replaced existing sheet: {sanitize_for_log(match_sheet)} in {sanitize_for_log(output_file)}")
 
             with pd.ExcelWriter(output_file, mode="a", engine="openpyxl") as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
-            logger.info(f"Added sheet: {sheet_name} to existing file: {output_file}")
+            logger.info(f"Added sheet: {sanitize_for_log(sheet_name)} to existing file: {sanitize_for_log(output_file)}")
     except PermissionError as e:
-        logger.error(f"Permission denied writing to Excel file {output_file}: {e}")
+        logger.error(f"Permission denied writing to Excel file {sanitize_for_log(output_file)}: {sanitize_for_log(e)}")
         raise
     except Exception as e:
-        logger.error(f"Error writing to Excel file {output_file}: {e}")
+        logger.error(f"Error writing to Excel file {sanitize_for_log(output_file)}: {sanitize_for_log(e)}")
         raise
 
 
@@ -218,7 +230,7 @@ def push_to_mongo(df, collection, unique_keys):
 
 
 def process_file(tcx_file, args, mongo_client=None):
-    logger.info(f"Starting processing of file: {tcx_file}")
+    logger.info(f"Starting processing of file: {sanitize_for_log(tcx_file)}")
     print(f"Processing {tcx_file}")
 
     date_str = get_first_lap_date(tcx_file)
@@ -321,14 +333,15 @@ def main():
             mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
             # Trigger a server selection to verify connection
             mongo_client.server_info()
-            logger.info(f"Successfully connected to MongoDB at {args.mongo_uri}")
+
+            logger.info(f"Successfully connected to MongoDB at {sanitize_for_log(args.mongo_uri)}")
             print("Connected to MongoDB")
         except ServerSelectionTimeoutError as e:
-            logger.error(f"MongoDB connection timeout: {args.mongo_uri} - {e}")
+            logger.error(f"MongoDB connection timeout: {sanitize_for_log(args.mongo_uri)} - {sanitize_for_log(e)}")
             print("ERROR: Could not connect to MongoDB. Please check your connection.")
             return
         except Exception as e:
-            logger.error(f"Unexpected MongoDB connection error: {e}")
+            logger.error(f"Unexpected MongoDB connection error: {sanitize_for_log(e)}")
             print(f"ERROR: MongoDB connection failed: {e}")
             return
 
@@ -348,8 +361,7 @@ def main():
                     print(f"No .tcx files found in folder '{args.input_path}'.")
                     return
             except (PermissionError, OSError) as e:
-                logger.error(f"Directory access error: {args.input_path} - {e}")
-                print(f"ERROR: Cannot access directory '{args.input_path}': {e}")
+                logger.error(f"Directory access error: {sanitize_for_log(args.input_path)} - {sanitize_for_log(e)}")
                 return
 
         for f in files:
