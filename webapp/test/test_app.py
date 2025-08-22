@@ -136,8 +136,8 @@ class TestWebapp(unittest.TestCase):
             result = self.app_module.friendly_name_filter("LapNumber")
             self.assertEqual(result, "Lap")
 
-            # Regex search filter
-            result = self.app_module.regex_search("test-2024-01-01", r'(\d{4}-\d{2}-\d{2})')
+            # Regex search filter - updated to use safe pattern names
+            result = self.app_module.regex_search("test-2024-01-01", "date")
             self.assertIsNotNone(result)
 
     # Business Logic Tests
@@ -171,13 +171,15 @@ class TestWebapp(unittest.TestCase):
         # Results can be None or valid records
         self.assertTrue(fastest is None or isinstance(fastest, dict))
 
-    @patch('app.db')
-    def test_load_detailed_data(self, mock_db):
+    @patch('app.get_db_connection')
+    def test_load_detailed_data(self, mock_get_db):
+        mock_db = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.sort.return_value = [
             {"_source_file": "test.tcx", "Time": "2024-01-01T10:00:00Z"}
         ]
         mock_db.__getitem__.return_value.find.return_value = mock_cursor
+        mock_get_db.return_value = mock_db
 
         result = self.app_module.load_detailed_data()
 
@@ -238,6 +240,30 @@ class TestWebapp(unittest.TestCase):
         # Should get indices [0, 60] for 120 points with interval 60
         self.assertEqual(filtered_indices, [0, 60])
 
+    # Security Tests
+    def test_regex_search_security(self):
+        """Test that regex_search only allows safe patterns"""
+        with self.app.app_context():
+            # Test safe patterns work
+            result = self.app_module.regex_search("2024-01-01", "date")
+            self.assertIsNotNone(result)
+            
+            # Test unsafe patterns are rejected
+            result = self.app_module.regex_search("test", "(.*)*")
+            self.assertIsNone(result)
+            
+            # Test non-string input
+            result = self.app_module.regex_search(123, "date")
+            self.assertIsNone(result)
+    
+    def test_database_connection_management(self):
+        """Test database connection management"""
+        # Test get_db_connection function exists
+        self.assertTrue(callable(self.app_module.get_db_connection))
+        
+        # Test close_db_connection function exists
+        self.assertTrue(callable(self.app_module.close_db_connection))
+    
     # Integration Tests
     @patch('app.load_detailed_data')
     @patch('app.find_records')
@@ -257,6 +283,16 @@ class TestWebapp(unittest.TestCase):
         mock_calc.assert_called_once()
         mock_find.assert_called_once()
         mock_detailed.assert_called_once()
+    
+    @patch('app.get_db_connection')
+    def test_index_route_error_handling(self, mock_get_db):
+        """Test index route handles database errors gracefully"""
+        mock_get_db.side_effect = Exception("Database connection failed")
+        
+        response = self.client.get('/')
+        
+        # Should still return 200 with empty data
+        self.assertEqual(response.status_code, 200)
 
 if __name__ == '__main__':
     unittest.main()

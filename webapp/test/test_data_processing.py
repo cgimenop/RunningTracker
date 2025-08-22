@@ -91,8 +91,7 @@ class TestDataProcessing(unittest.TestCase):
                 result = self.app_module.get_friendly_column_name(column)
                 self.assertEqual(result, column)
     
-    @patch('app.db')
-    def test_calculate_file_summaries_valid_data(self, mock_db):
+    def test_calculate_file_summaries_valid_data(self):
         """Test file summary calculation with valid data"""
         grouped = {
             "test1.tcx": [
@@ -106,12 +105,14 @@ class TestDataProcessing(unittest.TestCase):
         
         summaries, all_laps, valid_laps = self.app_module.calculate_file_summaries(grouped)
         
-        # Check summaries structure
+        # Check summaries structure - updated field names
         self.assertEqual(len(summaries), 2)
         self.assertIn("source", summaries[0])
         self.assertIn("date", summaries[0])
         self.assertIn("total_distance", summaries[0])
         self.assertIn("total_time", summaries[0])
+        self.assertIn("total_distance_formatted", summaries[0])
+        self.assertIn("total_time_formatted", summaries[0])
         
         # Check all_laps and valid_laps structure
         self.assertIn("test1.tcx", all_laps)
@@ -119,8 +120,7 @@ class TestDataProcessing(unittest.TestCase):
         self.assertIn("test1.tcx", valid_laps)
         self.assertIn("test2.tcx", valid_laps)
     
-    @patch('app.db')
-    def test_calculate_file_summaries_invalid_data(self, mock_db):
+    def test_calculate_file_summaries_invalid_data(self):
         """Test file summary calculation with invalid data"""
         grouped = {
             "test.tcx": [
@@ -194,6 +194,63 @@ class TestDataProcessing(unittest.TestCase):
         # Should handle invalid data gracefully
         self.assertIsNone(fastest)
         self.assertIsNone(slowest)
+        # File summaries with invalid data should still return None
+        self.assertIsNone(longest_dist)
+        self.assertIsNone(longest_time)
+    
+    def test_is_valid_lap(self):
+        """Test lap validation logic"""
+        # Valid lap
+        valid_lap = {"LapDistance_m": 1000}
+        self.assertTrue(self.app_module._is_valid_lap(valid_lap))
+        
+        # Invalid laps
+        invalid_laps = [
+            {"LapDistance_m": 500},  # Too short
+            {"LapDistance_m": None},  # None distance
+            {"LapDistance_m": "invalid"},  # Invalid type
+            {},  # Missing distance
+        ]
+        
+        for lap in invalid_laps:
+            with self.subTest(lap=lap):
+                self.assertFalse(self.app_module._is_valid_lap(lap))
+    
+    def test_filter_data_by_interval(self):
+        """Test data filtering by interval"""
+        # Create test data with 120 points
+        source_data = [{"index": i} for i in range(120)]
+        
+        filtered = self.app_module._filter_data_by_interval(source_data)
+        
+        # Should include first point and every 60th point
+        self.assertGreater(len(filtered), 0)
+        self.assertEqual(filtered[0]["index"], 0)  # First point always included
+        
+        # Check that filtering reduces data size
+        self.assertLess(len(filtered), len(source_data))
+
+    def test_calculate_merge_info(self):
+        """Test merge info calculation for table cell merging"""
+        filtered_data = [
+            {"LapNumber": 1, "LapStartTime": "10:00:00"},
+            {"LapNumber": 1, "LapStartTime": "10:00:00"},
+            {"LapNumber": 2, "LapStartTime": "10:05:00"}
+        ]
+        
+        # Test first row (should show with rowspan 2)
+        merge_info = self.app_module._calculate_merge_info(filtered_data, 0)
+        self.assertTrue(merge_info["LapNumber"]["show"])
+        self.assertEqual(merge_info["LapNumber"]["rowspan"], 2)
+        
+        # Test second row (should not show)
+        merge_info = self.app_module._calculate_merge_info(filtered_data, 1)
+        self.assertFalse(merge_info["LapNumber"]["show"])
+        
+        # Test third row (should show with rowspan 1)
+        merge_info = self.app_module._calculate_merge_info(filtered_data, 2)
+        self.assertTrue(merge_info["LapNumber"]["show"])
+        self.assertEqual(merge_info["LapNumber"]["rowspan"], 1)
 
 if __name__ == '__main__':
     unittest.main()

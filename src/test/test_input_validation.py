@@ -15,9 +15,9 @@ class TestInputValidation(unittest.TestCase):
     
     def test_calc_pace_input_validation(self):
         """Test calc_pace function with various input types"""
-        # Valid inputs
-        self.assertEqual(self.trainparser.calc_pace(600, 1000), 10.0)
-        self.assertEqual(self.trainparser.calc_pace(300, 1000), 5.0)
+        # Valid inputs - updated for corrected formula (multiplies by 60)
+        self.assertEqual(self.trainparser.calc_pace(600, 1000), 600.0)
+        self.assertEqual(self.trainparser.calc_pace(300, 1000), 300.0)
         
         # Zero and negative inputs
         self.assertIsNone(self.trainparser.calc_pace(0, 1000))
@@ -31,7 +31,7 @@ class TestInputValidation(unittest.TestCase):
         self.assertIsNone(self.trainparser.calc_pace(None, None))
         
         # String inputs that can be converted
-        self.assertEqual(self.trainparser.calc_pace("600", "1000"), 10.0)
+        self.assertEqual(self.trainparser.calc_pace("600", "1000"), 600.0)
         
         # Invalid string inputs
         self.assertIsNone(self.trainparser.calc_pace("invalid", 1000))
@@ -46,22 +46,22 @@ class TestInputValidation(unittest.TestCase):
         
         # Very large values
         result = self.trainparser.calc_pace(36000, 10000)  # 10 hours for 10km
-        self.assertEqual(result, 60.0)  # 60 min/km
+        self.assertEqual(result, 3600.0)  # Updated for corrected formula
         
         # Float inputs
-        self.assertAlmostEqual(self.trainparser.calc_pace(600.5, 1000.5), 10.005, places=2)
+        self.assertAlmostEqual(self.trainparser.calc_pace(600.5, 1000.5), 600.3, places=1)
     
     def test_calc_pace_precision(self):
         """Test calc_pace calculation precision"""
-        # Test specific calculations
+        # Test specific calculations - updated for corrected formula
         result = self.trainparser.calc_pace(240, 1000)  # 4 minutes for 1km
-        self.assertEqual(result, 4.0)
+        self.assertEqual(result, 240.0)
         
         result = self.trainparser.calc_pace(330, 1000)  # 5.5 minutes for 1km
-        self.assertEqual(result, 5.5)
+        self.assertEqual(result, 330.0)
         
         result = self.trainparser.calc_pace(600, 2000)  # 10 minutes for 2km = 5 min/km
-        self.assertEqual(result, 5.0)
+        self.assertEqual(result, 300.0)
     
     def test_filename_sanitization_patterns(self):
         """Test filename patterns that could cause issues"""

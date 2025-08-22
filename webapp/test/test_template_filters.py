@@ -32,31 +32,49 @@ class TestTemplateFilters(unittest.TestCase):
     def test_regex_search_filter_valid_patterns(self):
         """Test regex_search filter with valid patterns"""
         with self.app.app_context():
-            # Test date pattern matching
-            result = self.app_module.regex_search("test-2024-01-01", r'(\d{4}-\d{2}-\d{2})')
+            # Test date pattern matching - updated to use safe pattern names
+            result = self.app_module.regex_search("test-2024-01-01", "date")
             self.assertIsNotNone(result)
             self.assertEqual(result.group(1), "2024-01-01")
             
             # Test filename pattern matching
-            result = self.app_module.regex_search("RunnerUp_2025-08-05-08-24-01_Running.tcx", r'(\d{4}-\d{2}-\d{2})')
+            result = self.app_module.regex_search("RunnerUp_2025-08-05-08-24-01_Running.tcx", "date")
             self.assertIsNotNone(result)
             self.assertEqual(result.group(1), "2025-08-05")
             
             # Test no match
-            result = self.app_module.regex_search("no-date-here", r'(\d{4}-\d{2}-\d{2})')
+            result = self.app_module.regex_search("no-date-here", "date")
             self.assertIsNone(result)
+            
+            # Test time pattern
+            result = self.app_module.regex_search("time-12:34:56", "time")
+            self.assertIsNotNone(result)
+            self.assertEqual(result.group(1), "12:34:56")
+            
+            # Test number pattern
+            result = self.app_module.regex_search("value-123.45", "number")
+            self.assertIsNotNone(result)
+            self.assertEqual(result.group(1), "123.45")
     
     def test_regex_search_filter_edge_cases(self):
         """Test regex_search filter with edge cases"""
         with self.app.app_context():
             # Empty string
-            result = self.app_module.regex_search("", r'(\d{4}-\d{2}-\d{2})')
+            result = self.app_module.regex_search("", "date")
             self.assertIsNone(result)
             
             # Multiple matches (should return first)
-            result = self.app_module.regex_search("2024-01-01 and 2024-12-31", r'(\d{4}-\d{2}-\d{2})')
+            result = self.app_module.regex_search("2024-01-01 and 2024-12-31", "date")
             self.assertIsNotNone(result)
             self.assertEqual(result.group(1), "2024-01-01")
+            
+            # Test unsafe pattern rejection
+            result = self.app_module.regex_search("test", "unsafe_pattern")
+            self.assertIsNone(result)
+            
+            # Test non-string input
+            result = self.app_module.regex_search(123, "date")
+            self.assertIsNone(result)
     
     def test_format_distance_filter(self):
         """Test format_distance template filter"""

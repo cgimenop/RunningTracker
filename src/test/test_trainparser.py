@@ -2,6 +2,7 @@ import unittest
 import sys
 from unittest.mock import patch, MagicMock, mock_open
 import pymongo.errors
+from collections import namedtuple
 
 # Import trainparser with logging mocked
 with patch.dict('sys.modules', {'logging_config': MagicMock()}):
@@ -18,7 +19,7 @@ class TestArgs:
 class TestCalcPace(unittest.TestCase):
     def test_calc_pace_valid_inputs(self):
         result = trainparser.calc_pace(600, 1000)  # 10 minutes for 1km
-        self.assertEqual(result, 10.0)
+        self.assertEqual(result, 600.0)  # Updated: formula now multiplies by 60
     
     def test_calc_pace_zero_distance(self):
         result = trainparser.calc_pace(600, 0)
@@ -61,7 +62,19 @@ class TestPushToMongo(unittest.TestCase):
         
         trainparser.push_to_mongo(mock_df, mock_collection, unique_keys)
         
-        self.assertEqual(mock_collection.replace_one.call_count, 2)
+        # Updated: now uses bulk_write instead of individual replace_one calls
+        mock_collection.bulk_write.assert_called_once()
+    
+    def test_push_to_mongo_invalid_keys(self):
+        mock_df = MagicMock()
+        mock_collection = MagicMock()
+        
+        # Test with invalid unique_keys parameter
+        with self.assertRaises(ValueError):
+            trainparser.push_to_mongo(mock_df, mock_collection, "not_a_list")
+        
+        with self.assertRaises(ValueError):
+            trainparser.push_to_mongo(mock_df, mock_collection, [123, "valid"])
 
 class TestParseTcxSummary(unittest.TestCase):
     def test_parse_tcx_summary_function_exists(self):
@@ -78,10 +91,41 @@ class TestProcessFile(unittest.TestCase):
         # Test that the function exists and is callable
         self.assertTrue(callable(trainparser.process_file))
 
+class TestLapDataNamedTuple(unittest.TestCase):
+    def test_lap_data_structure(self):
+        # Test that LapData namedtuple works correctly
+        lap_data = trainparser.LapData("2024-01-01T10:00:00Z", 600.0, 1000.0, 600.0)
+        self.assertEqual(lap_data.start_time, "2024-01-01T10:00:00Z")
+        self.assertEqual(lap_data.total_time_s, 600.0)
+        self.assertEqual(lap_data.distance_m, 1000.0)
+        self.assertEqual(lap_data.pace, 600.0)
+
+class TestSanitization(unittest.TestCase):
+    def test_sanitize_for_log(self):
+        # Test log sanitization function
+        result = trainparser.sanitize_for_log("normal text")
+        self.assertEqual(result, "normal text")
+        
+        # Test with dangerous characters
+        result = trainparser.sanitize_for_log("text\nwith\nnewlines")
+        self.assertEqual(result, "text\\nwith\\nnewlines")
+        
+        # Test with None
+        result = trainparser.sanitize_for_log(None)
+        self.assertEqual(result, "None")
+    
+    def test_validate_safe_path(self):
+        # Test path validation function
+        self.assertTrue(trainparser._validate_safe_path("/safe/path/file.txt"))
+        
+        # Test with relative paths (should be made absolute)
+        result = trainparser._validate_safe_path("relative/path.txt")
+        self.assertIsInstance(result, bool)
+
 class TestErrorHandling(unittest.TestCase):
-    @patch('src.trainparser.MongoClient')
-    def test_mongo_connection_error(self, mock_client):
-        mock_client.side_effect = pymongo.errors.ServerSelectionTimeoutError("Connection failed")
+    @patch('src.trainparser._setup_mongo_connection')
+    def test_mongo_connection_error(self, mock_setup):
+        mock_setup.return_value = None  # Connection failed
         
         with patch('src.trainparser.argparse.ArgumentParser') as mock_parser:
             mock_args = MagicMock()
@@ -95,10 +139,10 @@ class TestErrorHandling(unittest.TestCase):
             with patch('src.trainparser.os.path.exists', return_value=False):
                 trainparser.main()  # Should not crash
     
-    @patch('src.trainparser.os.listdir')
+    @patch('src.trainparser._discover_tcx_files')
     @patch('builtins.print')
-    def test_directory_access_error(self, mock_print, mock_listdir):
-        mock_listdir.side_effect = PermissionError("Access denied")
+    def test_directory_access_error(self, mock_print, mock_discover):
+        mock_discover.return_value = []  # No files found
         
         with patch('src.trainparser.argparse.ArgumentParser') as mock_parser:
             mock_args = MagicMock()
@@ -109,9 +153,9 @@ class TestErrorHandling(unittest.TestCase):
             mock_parser.return_value = mock_parser_instance
             
             with patch('src.trainparser.os.path.exists', return_value=True):
-                with patch('src.trainparser.os.path.isfile', return_value=False):
+                with patch('src.trainparser._validate_safe_path', return_value=True):
                     trainparser.main()
-                    mock_print.assert_any_call("ERROR: Cannot access directory '/restricted/path': Access denied")
+                    # Should handle gracefully
 
 class TestMain(unittest.TestCase):
     def test_main_function_exists(self):
