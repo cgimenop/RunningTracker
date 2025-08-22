@@ -66,7 +66,7 @@ def regex_search(s, pattern):
     }
     
     # Validate input string
-    if not isinstance(s, str) or s is None:
+    if not isinstance(s, str):
         return None
         
     if pattern in safe_patterns:
@@ -114,7 +114,7 @@ def get_friendly_column_name(column_name):
     return FRIENDLY_COLUMN_NAMES.get(column_name, column_name)
 
 def extract_date_from_filename(filename):
-    match = re.search(r'([0-9]{4}-[0-9]{2}-[0-9]{2})', filename)
+    match = regex_search(filename, 'date')
     return match.group(1) if match else filename
 
 def _is_valid_lap(lap):
@@ -239,6 +239,44 @@ def find_records(all_laps, file_summaries):
     
     return fastest_lap, slowest_lap, longest_distance_file, longest_time_file
 
+def _calculate_merge_info(filtered_data, i):
+    """Calculate merge info for table cell merging"""
+    merge_info = {}
+    for col in MERGE_COLUMNS:
+        if col in filtered_data[i]:
+            # Check if this is the first occurrence of this value
+            is_first = i == 0 or (i > 0 and filtered_data[i-1].get(col) != filtered_data[i][col])
+            
+            if is_first:
+                # Count consecutive rows with same value
+                rowspan = 1
+                for j in range(i + 1, len(filtered_data)):
+                    if filtered_data[j].get(col) == filtered_data[i][col]:
+                        rowspan += 1
+                    else:
+                        break
+                merge_info[col] = {"show": True, "rowspan": rowspan}
+            else:
+                merge_info[col] = {"show": False, "rowspan": 1}
+    return merge_info
+
+def _filter_data_by_interval(source_data):
+    """Filter data to show every N seconds"""
+    filtered_data = []
+    last_time = None
+    
+    for i, row in enumerate(source_data):
+        # Always include first row
+        if i == 0:
+            filtered_data.append(row)
+            last_time = i
+        # Include every Nth row (approximately N seconds)
+        elif i - last_time >= DETAILED_DATA_SAMPLE_INTERVAL:
+            filtered_data.append(row)
+            last_time = i
+    
+    return filtered_data
+
 def load_detailed_data():
     db = get_db_connection()
     # Use safe query with no user input
@@ -255,19 +293,7 @@ def load_detailed_data():
     
     for source, source_data in data_by_source.items():
         
-        # Filter to show every N seconds
-        filtered_data = []
-        last_time = None
-        
-        for i, row in enumerate(source_data):
-            # Always include first row
-            if i == 0:
-                filtered_data.append(row)
-                last_time = i
-            # Include every Nth row (approximately N seconds)
-            elif i - last_time >= DETAILED_DATA_SAMPLE_INTERVAL:
-                filtered_data.append(row)
-                last_time = i
+        filtered_data = _filter_data_by_interval(source_data)
         
         # Format fields and add cell merging info
         
@@ -294,24 +320,7 @@ def load_detailed_data():
                     row[COL_ALTITUDE_DELTA_M] = 0
             row[COL_ALTITUDE_DELTA_FORMATTED] = format_altitude(row[COL_ALTITUDE_DELTA_M])
             
-            # Add merging info for each column
-            row[FIELD_MERGE_INFO] = {}
-            for col in MERGE_COLUMNS:
-                if col in row:
-                    # Check if this is the first occurrence of this value
-                    is_first = i == 0 or (i > 0 and filtered_data[i-1].get(col) != row[col])
-                    
-                    if is_first:
-                        # Count consecutive rows with same value
-                        rowspan = 1
-                        for j in range(i + 1, len(filtered_data)):
-                            if filtered_data[j].get(col) == row[col]:
-                                rowspan += 1
-                            else:
-                                break
-                        row[FIELD_MERGE_INFO][col] = {"show": True, "rowspan": rowspan}
-                    else:
-                        row[FIELD_MERGE_INFO][col] = {"show": False, "rowspan": 1}
+            row[FIELD_MERGE_INFO] = _calculate_merge_info(filtered_data, i)
         
         detailed_grouped[source] = filtered_data
     

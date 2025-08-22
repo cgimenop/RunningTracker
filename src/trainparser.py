@@ -28,10 +28,6 @@ def sanitize_for_log(value):
 def _validate_safe_path(file_path, base_path=None):
     """Validate file path to prevent path traversal attacks"""
     try:
-        # Check for path traversal attempts BEFORE resolving
-        if '..' in str(file_path) or str(file_path).startswith('/') or str(file_path).startswith('\\'):
-            return False
-            
         # Convert to Path object and resolve
         path = Path(file_path).resolve()
         
@@ -42,6 +38,10 @@ def _validate_safe_path(file_path, base_path=None):
                 path.relative_to(base)
             except ValueError:
                 return False
+        
+        # Check for path traversal after resolution
+        if '..' in str(path) or not path.is_absolute():
+            return False
                 
         return True
     except (OSError, ValueError):
@@ -163,7 +163,8 @@ def parse_tcx_detailed(tcx_file):
     return pd.DataFrame(rows)
 
 
-def parse_tcx_summary(tcx_file):
+def _parse_tcx_file(tcx_file, operation="analysis"):
+    """Common XML parsing logic for TCX files"""
     try:
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
         # Validate namespace
@@ -171,7 +172,8 @@ def parse_tcx_summary(tcx_file):
             raise ValueError("Invalid namespace configuration")
         tree = ET.parse(tcx_file)
         root = tree.getroot()
-        logger.info(f"Successfully parsed TCX file for summary analysis: {sanitize_for_log(tcx_file)}")
+        logger.info(f"Successfully parsed TCX file for {operation}: {sanitize_for_log(tcx_file)}")
+        return root, ns
     except ET.ParseError as e:
         logger.error(f"XML parsing error in {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise ValueError(f"Invalid XML file: {e}")
@@ -182,24 +184,15 @@ def parse_tcx_summary(tcx_file):
         logger.error(f"Unexpected error parsing {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise
 
+def parse_tcx_summary(tcx_file):
+    root, ns = _parse_tcx_file(tcx_file, "summary analysis")
+
     rows = []
     lap_counter = 0
 
     for lap in root.findall(".//tcx:Lap", ns):
         lap_counter += 1
-
-        lap_start = lap.attrib.get("StartTime")
-        # amazonq-ignore-next-line
-        lap_total_time = lap.find("tcx:TotalTimeSeconds", ns)
-        # amazonq-ignore-next-line
-        lap_distance = lap.find("tcx:DistanceMeters", ns)
-
-        try:
-            total_time_s = float(lap_total_time.text) if lap_total_time is not None and lap_total_time.text else None
-            distance_m = float(lap_distance.text) if lap_distance is not None and lap_distance.text else None
-        except ValueError:
-            total_time_s = distance_m = None
-        pace = calc_pace(total_time_s, distance_m)
+        lap_start, total_time_s, distance_m, pace = _extract_lap_data(lap, ns)
 
         rows.append({
             "LapNumber": lap_counter,
@@ -214,12 +207,7 @@ def parse_tcx_summary(tcx_file):
 
 def get_first_lap_date(tcx_file):
     try:
-        ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
-        # Validate namespace
-        if not isinstance(ns, dict) or "tcx" not in ns:
-            raise ValueError("Invalid namespace configuration")
-        tree = ET.parse(tcx_file)
-        root = tree.getroot()
+        root, ns = _parse_tcx_file(tcx_file, "date extraction")
         first_lap = root.find(".//tcx:Lap", ns)
         if first_lap is not None and "StartTime" in first_lap.attrib:
             start_time = first_lap.attrib["StartTime"]
@@ -359,6 +347,50 @@ def process_file(tcx_file, args, mongo_client=None):
         print("✅ Data pushed to MongoDB")
 
 
+def _discover_tcx_files(input_path):
+    """Discover TCX files from input path"""
+    # Determine if input is file or folder
+    if os.path.isfile(input_path):
+        return [input_path]
+    
+    # Folder - get all .tcx files
+    try:
+        files = []
+        for f in os.listdir(input_path):
+            if f.lower().endswith(".tcx"):
+                full_path = os.path.join(input_path, f)
+                if _validate_safe_path(full_path, input_path) and os.path.isfile(full_path):
+                    files.append(full_path)
+                    
+        if not files:
+            print(f"No .tcx files found in folder '{input_path}'.")
+            return []
+        return files
+    except (PermissionError, OSError) as e:
+        logger.error(f"Directory access error: {sanitize_for_log(input_path)} - {sanitize_for_log(e)}")
+        return []
+
+def _setup_mongo_connection(args):
+    """Setup MongoDB connection if requested"""
+    if not args.mongo:
+        return None
+        
+    try:
+        mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
+        # Trigger a server selection to verify connection
+        mongo_client.server_info()
+        logger.info(f"Successfully connected to MongoDB at {sanitize_for_log(args.mongo_uri)}")
+        print("Connected to MongoDB")
+        return mongo_client
+    except ServerSelectionTimeoutError as e:
+        logger.error(f"MongoDB connection timeout: {sanitize_for_log(args.mongo_uri)} - {sanitize_for_log(e)}")
+        print("ERROR: Could not connect to MongoDB. Please check your connection.")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected MongoDB connection error: {sanitize_for_log(e)}")
+        print(f"ERROR: MongoDB connection failed: {e}")
+        return None
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -394,24 +426,9 @@ def main():
         print(f"Input path '{args.input_path}' does not exist.")
         return
 
-    # Setup MongoDB client if requested
-    mongo_client = None
-    if args.mongo:
-        try:
-            mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
-            # Trigger a server selection to verify connection
-            mongo_client.server_info()
-
-            logger.info(f"Successfully connected to MongoDB at {sanitize_for_log(args.mongo_uri)}")
-            print("Connected to MongoDB")
-        except ServerSelectionTimeoutError as e:
-            logger.error(f"MongoDB connection timeout: {sanitize_for_log(args.mongo_uri)} - {sanitize_for_log(e)}")
-            print("ERROR: Could not connect to MongoDB. Please check your connection.")
-            return
-        except Exception as e:
-            logger.error(f"Unexpected MongoDB connection error: {sanitize_for_log(e)}")
-            print(f"ERROR: MongoDB connection failed: {e}")
-            return
+    mongo_client = _setup_mongo_connection(args)
+    if args.mongo and mongo_client is None:
+        return
 
     try:
         # Validate input path to prevent path traversal
@@ -419,25 +436,9 @@ def main():
             print(f"Invalid or unsafe input path: '{args.input_path}'")
             return
             
-        # Determine if input is file or folder
-        if os.path.isfile(args.input_path):
-            files = [args.input_path]
-        else:
-            # Folder - get all .tcx files
-            try:
-                files = []
-                for f in os.listdir(args.input_path):
-                    if f.lower().endswith(".tcx"):
-                        full_path = os.path.join(args.input_path, f)
-                        if _validate_safe_path(full_path, args.input_path) and os.path.isfile(full_path):
-                            files.append(full_path)
-                            
-                if not files:
-                    print(f"No .tcx files found in folder '{args.input_path}'.")
-                    return
-            except (PermissionError, OSError) as e:
-                logger.error(f"Directory access error: {sanitize_for_log(args.input_path)} - {sanitize_for_log(e)}")
-                return
+        files = _discover_tcx_files(args.input_path)
+        if not files:
+            return
 
         for f in files:
             process_file(f, args, mongo_client)
