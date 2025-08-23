@@ -1,18 +1,30 @@
 import re
 import os
+import sys
 import logging
 from flask import Flask, render_template
 from pymongo import MongoClient
 from collections import defaultdict
 from datetime import timedelta
-from logging_config import setup_webapp_logging
-from const import (MERGE_COLUMNS, FRIENDLY_COLUMN_NAMES, DETAILED_DATA_SAMPLE_INTERVAL, MIN_VALID_LAP_DISTANCE,
-                   COLLECTION_SUMMARY, COLLECTION_DETAILED, COL_ID, COL_SOURCE_FILE, COL_LAP_TOTAL_TIME_S,
-                   COL_LAP_DISTANCE_M, COL_LAP_NUMBER, COL_ALTITUDE_M, COL_ALTITUDE_DELTA_M, COL_DISTANCE_M,
-                   COL_TIME, COL_LAP_TOTAL_TIME_FORMATTED, COL_LAP_DISTANCE_FORMATTED, COL_ALTITUDE_FORMATTED,
-                   COL_ALTITUDE_DELTA_FORMATTED, COL_DISTANCE_FORMATTED, FIELD_SOURCE, FIELD_DATE,
-                   FIELD_TOTAL_DISTANCE, FIELD_TOTAL_DISTANCE_FORMATTED, FIELD_TOTAL_TIME,
-                   FIELD_TOTAL_TIME_FORMATTED, FIELD_MERGE_INFO)
+
+# Add current directory to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from logging_config import setup_webapp_logging
+    from const import (MERGE_COLUMNS, FRIENDLY_COLUMN_NAMES, DETAILED_DATA_SAMPLE_INTERVAL, MIN_VALID_LAP_DISTANCE,
+                       COLLECTION_SUMMARY, COLLECTION_DETAILED, COL_ID, COL_SOURCE_FILE, COL_LAP_TOTAL_TIME_S,
+                       COL_LAP_DISTANCE_M, COL_LAP_NUMBER, COL_ALTITUDE_M, COL_ALTITUDE_DELTA_M, COL_DISTANCE_M,
+                       COL_TIME, COL_LAP_TOTAL_TIME_FORMATTED, COL_LAP_DISTANCE_FORMATTED, COL_ALTITUDE_FORMATTED,
+                       COL_ALTITUDE_DELTA_FORMATTED, COL_DISTANCE_FORMATTED, FIELD_SOURCE, FIELD_DATE,
+                       FIELD_TOTAL_DISTANCE, FIELD_TOTAL_DISTANCE_FORMATTED, FIELD_TOTAL_TIME,
+                       FIELD_TOTAL_TIME_FORMATTED, FIELD_MERGE_INFO)
+except ImportError as e:
+    print(f"Import error: {e}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Python path: {sys.path}")
+    print(f"Files in current directory: {os.listdir('.')}")
+    raise
 
 # Setup logging
 logger = setup_webapp_logging()
