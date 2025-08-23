@@ -4,8 +4,9 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Copy the script into the container
+# Copy the script and logging config into the container
 COPY src/trainparser.py /app/trainparser.py
+COPY src/logging_config.py /app/logging_config.py
 COPY requirements.txt /app/requirements.txt
 
 # Install system dependencies needed for pandas & MongoDB driver
