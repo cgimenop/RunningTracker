@@ -19,26 +19,61 @@ logger = setup_webapp_logging()
 
 app = Flask(__name__)
 
-# Load configuration based on environment
-env = os.getenv('FLASK_ENV', 'production')
-if env == 'development':
-    from config.development import DEBUG, MONGO_URI, DATABASE_NAME
-else:
-    from config.production import DEBUG, MONGO_URI, DATABASE_NAME
+# Load configuration based on environment - use server-side config only
+# Fixed: Use hardcoded server-side configuration instead of client-controlled env
+DEBUG = False  # Always False in production
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017')
+DATABASE_NAME = os.getenv('DATABASE_NAME', 'RunningTracker')
 
-try:
-    client = MongoClient(MONGO_URI)
-    db = client[DATABASE_NAME]
-    # Test connection
-    client.server_info()
-    logger.info(f"Successfully connected to MongoDB: {DATABASE_NAME}")
-except Exception as e:
-    logger.error(f"Failed to connect to MongoDB: {e}")
-    raise
+# Only enable debug mode if explicitly set by server admin
+if os.getenv('FLASK_DEBUG') == 'true':
+    DEBUG = True
+
+# Global client variable for proper resource management
+client = None
+db = None
+
+def get_db_connection():
+    """Get database connection with proper error handling"""
+    global client, db
+    if client is None:
+        try:
+            client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+            db = client[DATABASE_NAME]
+            # Test connection
+            client.server_info()
+            logger.info(f"Successfully connected to MongoDB: {DATABASE_NAME}")
+        except Exception as e:
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            raise
+    return db
+
+def close_db_connection():
+    """Close database connection properly"""
+    global client, db
+    if client:
+        client.close()
+        client = None
+        db = None
 
 @app.template_filter('regex_search')
 def regex_search(s, pattern):
-    return re.search(pattern, s)
+    # Only allow safe, predefined patterns to prevent ReDoS attacks
+    safe_patterns = {
+        'date': r'([0-9]{4}-[0-9]{2}-[0-9]{2})',
+        'time': r'([0-9]{2}:[0-9]{2}:[0-9]{2})',
+        'number': r'([0-9]+\.?[0-9]*)',
+    }
+    
+    # Validate input string
+    if not isinstance(s, str):
+        return None
+        
+    if pattern in safe_patterns:
+        return re.search(safe_patterns[pattern], s)
+    else:
+        # Return None for unsafe patterns
+        return None
 
 @app.template_filter('format_distance')
 def format_distance_filter(distance_m):
@@ -79,13 +114,61 @@ def get_friendly_column_name(column_name):
     return FRIENDLY_COLUMN_NAMES.get(column_name, column_name)
 
 def extract_date_from_filename(filename):
-    match = re.search(r'([0-9]{4}-[0-9]{2}-[0-9]{2})', filename)
+    match = regex_search(filename, 'date')
     return match.group(1) if match else filename
 
-def load_summary_data():
-    summary_data = list(db[COLLECTION_SUMMARY].find({}, {COL_ID: 0}))
+def _is_valid_lap(lap):
+    """Check if a lap has valid distance data"""
+    distance = lap.get(COL_LAP_DISTANCE_M)
+    if distance is None:
+        return False
+    try:
+        return float(distance) >= MIN_VALID_LAP_DISTANCE
+    except (ValueError, TypeError):
+        return False
+
+def _calculate_lap_altitude_delta(lap, source_detailed):
+    """Calculate altitude delta for a single lap"""
+    lap_num = lap.get(COL_LAP_NUMBER)
+    if lap_num is None:
+        return 0
+        
+    lap_points = [p for p in source_detailed 
+                  if p.get(COL_LAP_NUMBER) == lap_num and p.get(COL_ALTITUDE_M) is not None]
+    
+    if not lap_points:
+        return 0
+        
+    try:
+        altitudes = [float(p[COL_ALTITUDE_M]) for p in lap_points]
+        return sum(altitudes[i] - altitudes[i-1] for i in range(1, len(altitudes)))
+    except (ValueError, TypeError):
+        return 0
+
+def _calculate_altitude_deltas(grouped, db):
+    """Calculate altitude deltas for all laps in grouped data"""
+    # Optimize: Load all detailed data once instead of per source (N+1 fix)
+    # Use safe query with no user input
+    query = {}
+    projection = {COL_ID: 0}
+    all_detailed = list(db[COLLECTION_DETAILED].find(query, projection).sort(COL_TIME, 1))
+    detailed_by_source = defaultdict(list)
+    
+    # Group detailed data by source
+    for row in all_detailed:
+        source = row.get(COL_SOURCE_FILE, "Unknown")
+        detailed_by_source[source].append(row)
+    
+    for source, laps in grouped.items():
+        source_detailed = detailed_by_source.get(source, [])
+        
+        for lap in laps:
+            lap[COL_ALTITUDE_DELTA_M] = _calculate_lap_altitude_delta(lap, source_detailed)
+            lap[COL_ALTITUDE_DELTA_FORMATTED] = format_altitude(lap[COL_ALTITUDE_DELTA_M])
+
+def _format_summary_data(summary_data):
+    """Format summary data and group by source"""
     grouped = defaultdict(list)
-    all_laps = []
     for row in summary_data:
         source = row.get(COL_SOURCE_FILE, "Unknown")
         if COL_LAP_TOTAL_TIME_S in row:
@@ -93,44 +176,27 @@ def load_summary_data():
         if COL_LAP_DISTANCE_M in row:
             row[COL_LAP_DISTANCE_FORMATTED] = format_distance(row[COL_LAP_DISTANCE_M])
         grouped[source].append(row)
-    
-    # Calculate altitude deltas for each file (need detailed data for max/min calculation)
-    for source, laps in grouped.items():
-        # Get detailed data for this source to calculate lap altitude deltas
-        source_detailed = list(db[COLLECTION_DETAILED].find({COL_SOURCE_FILE: source}, {COL_ID: 0}).sort(COL_TIME, 1))
-        
-        for lap in laps:
-            lap_num = lap.get(COL_LAP_NUMBER)
-            if lap_num is not None:
-                # Find all detailed points for this lap
-                lap_points = [p for p in source_detailed if p.get(COL_LAP_NUMBER) == lap_num and p.get(COL_ALTITUDE_M) is not None]
-                
-                if lap_points:
-                    try:
-                        altitudes = [float(p[COL_ALTITUDE_M]) for p in lap_points]
-                        
-                        # Accumulate all elevation changes between consecutive checkpoints
-                        total_elevation_change = 0
-                        for i in range(1, len(altitudes)):
-                            change = altitudes[i] - altitudes[i-1]
-                            total_elevation_change += change  # Accumulate signed changes
-                            
-                        lap[COL_ALTITUDE_DELTA_M] = total_elevation_change
-                    except (ValueError, TypeError):
-                        lap[COL_ALTITUDE_DELTA_M] = 0
-                else:
-                    lap[COL_ALTITUDE_DELTA_M] = 0
-            else:
-                lap[COL_ALTITUDE_DELTA_M] = 0
-            
-            lap[COL_ALTITUDE_DELTA_FORMATTED] = format_altitude(lap[COL_ALTITUDE_DELTA_M])
-    
-    # Build all_laps after altitude delta calculation
+    return grouped
+
+def _build_all_laps(grouped):
+    """Build all_laps list from grouped data"""
+    all_laps = []
     for source, laps in grouped.items():
         for lap in laps:
             row_copy = lap.copy()
             row_copy[COL_SOURCE_FILE] = source
             all_laps.append(row_copy)
+    return all_laps
+
+def load_summary_data():
+    db = get_db_connection()
+    # Use safe query with no user input
+    query = {}
+    projection = {COL_ID: 0}
+    summary_data = list(db[COLLECTION_SUMMARY].find(query, projection))
+    grouped = _format_summary_data(summary_data)
+    _calculate_altitude_deltas(grouped, db)
+    all_laps = _build_all_laps(grouped)
     return grouped, all_laps
 
 def calculate_file_summaries(grouped):
@@ -138,10 +204,7 @@ def calculate_file_summaries(grouped):
     file_all_laps = {}
     file_valid_laps = {}
     for source, laps in grouped.items():
-        try:
-            valid = [l for l in laps if l.get(COL_LAP_DISTANCE_M) is not None and float(l[COL_LAP_DISTANCE_M]) >= MIN_VALID_LAP_DISTANCE]
-        except (ValueError, TypeError):
-            valid = []
+        valid = [l for l in laps if _is_valid_lap(l)]
         file_all_laps[source] = laps
         file_valid_laps[source] = valid
         try:
@@ -161,10 +224,7 @@ def calculate_file_summaries(grouped):
     return file_summaries, file_all_laps, file_valid_laps
 
 def find_records(all_laps, file_summaries):
-    try:
-        valid_laps = [lap for lap in all_laps if lap.get(COL_LAP_DISTANCE_M) is not None and float(lap[COL_LAP_DISTANCE_M]) >= MIN_VALID_LAP_DISTANCE]
-    except (ValueError, TypeError):
-        valid_laps = []
+    valid_laps = [lap for lap in all_laps if _is_valid_lap(lap)]
     
     try:
         fastest_lap = min((lap for lap in valid_laps if lap.get(COL_LAP_TOTAL_TIME_S) is not None), key=lambda x: float(x[COL_LAP_TOTAL_TIME_S]), default=None)
@@ -179,26 +239,61 @@ def find_records(all_laps, file_summaries):
     
     return fastest_lap, slowest_lap, longest_distance_file, longest_time_file
 
+def _calculate_merge_info(filtered_data, i):
+    """Calculate merge info for table cell merging"""
+    merge_info = {}
+    for col in MERGE_COLUMNS:
+        if col in filtered_data[i]:
+            # Check if this is the first occurrence of this value
+            is_first = i == 0 or (i > 0 and filtered_data[i-1].get(col) != filtered_data[i][col])
+            
+            if is_first:
+                # Count consecutive rows with same value
+                rowspan = 1
+                for j in range(i + 1, len(filtered_data)):
+                    if filtered_data[j].get(col) == filtered_data[i][col]:
+                        rowspan += 1
+                    else:
+                        break
+                merge_info[col] = {"show": True, "rowspan": rowspan}
+            else:
+                merge_info[col] = {"show": False, "rowspan": 1}
+    return merge_info
+
+def _filter_data_by_interval(source_data):
+    """Filter data to show every N seconds"""
+    filtered_data = []
+    last_time = None
+    
+    for i, row in enumerate(source_data):
+        # Always include first row
+        if i == 0:
+            filtered_data.append(row)
+            last_time = i
+        # Include every Nth row (approximately N seconds)
+        elif i - last_time >= DETAILED_DATA_SAMPLE_INTERVAL:
+            filtered_data.append(row)
+            last_time = i
+    
+    return filtered_data
+
 def load_detailed_data():
-    detailed_data = list(db[COLLECTION_DETAILED].find({}, {COL_ID: 0}).sort(COL_TIME, 1))
+    db = get_db_connection()
+    # Use safe query with no user input
+    query = {}
+    projection = {COL_ID: 0}
+    detailed_data = list(db[COLLECTION_DETAILED].find(query, projection).sort(COL_TIME, 1))
     detailed_grouped = defaultdict(list)
     
-    for source in set(row.get(COL_SOURCE_FILE, "Unknown") for row in detailed_data):
-        source_data = [row for row in detailed_data if row.get(COL_SOURCE_FILE) == source]
+    # Optimize: Group data by source more efficiently
+    data_by_source = defaultdict(list)
+    for row in detailed_data:
+        source = row.get(COL_SOURCE_FILE, "Unknown")
+        data_by_source[source].append(row)
+    
+    for source, source_data in data_by_source.items():
         
-        # Filter to show every N seconds
-        filtered_data = []
-        last_time = None
-        
-        for i, row in enumerate(source_data):
-            # Always include first row
-            if i == 0:
-                filtered_data.append(row)
-                last_time = i
-            # Include every Nth row (approximately N seconds)
-            elif i - last_time >= DETAILED_DATA_SAMPLE_INTERVAL:
-                filtered_data.append(row)
-                last_time = i
+        filtered_data = _filter_data_by_interval(source_data)
         
         # Format fields and add cell merging info
         
@@ -225,24 +320,7 @@ def load_detailed_data():
                     row[COL_ALTITUDE_DELTA_M] = 0
             row[COL_ALTITUDE_DELTA_FORMATTED] = format_altitude(row[COL_ALTITUDE_DELTA_M])
             
-            # Add merging info for each column
-            row[FIELD_MERGE_INFO] = {}
-            for col in MERGE_COLUMNS:
-                if col in row:
-                    # Check if this is the first occurrence of this value
-                    is_first = i == 0 or (i > 0 and filtered_data[i-1].get(col) != row[col])
-                    
-                    if is_first:
-                        # Count consecutive rows with same value
-                        rowspan = 1
-                        for j in range(i + 1, len(filtered_data)):
-                            if filtered_data[j].get(col) == row[col]:
-                                rowspan += 1
-                            else:
-                                break
-                        row[FIELD_MERGE_INFO][col] = {"show": True, "rowspan": rowspan}
-                    else:
-                        row[FIELD_MERGE_INFO][col] = {"show": False, "rowspan": 1}
+            row[FIELD_MERGE_INFO] = _calculate_merge_info(filtered_data, i)
         
         detailed_grouped[source] = filtered_data
     
@@ -278,5 +356,19 @@ def index():
         detailed=detailed_grouped
     )
 
+@app.teardown_appcontext
+def close_db(error):
+    """Close database connection on app context teardown"""
+    if error:
+        # Sanitize error before logging
+        error_msg = str(error)[:200]  # Limit length
+        error_msg = error_msg.replace('\n', '\\n').replace('\r', '\\r')
+        logger.error(f"App context error: {error_msg}")
+    # Connection cleanup handled in finally block of main
+
 if __name__ == "__main__":
-    app.run(debug=DEBUG)
+    try:
+        app.run(debug=DEBUG)
+    finally:
+        # Ensure database connection is closed on shutdown
+        close_db_connection()
