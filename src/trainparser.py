@@ -34,7 +34,7 @@ def _validate_safe_path(file_path, base_path=None):
     try:
         # Convert to Path object and resolve
         path = Path(file_path).resolve()
-        
+
         # If base_path provided, ensure file is within base directory
         if base_path:
             base = Path(base_path).resolve()
@@ -42,11 +42,11 @@ def _validate_safe_path(file_path, base_path=None):
                 path.relative_to(base)
             except ValueError:
                 return False
-        
+
         # Check for path traversal after resolution
         if '..' in str(path) or not path.is_absolute():
             return False
-                
+
         return True
     except (OSError, ValueError):
         return False
@@ -79,7 +79,7 @@ def _extract_lap_data(lap, ns):
     # Validate namespace to prevent injection
     if not isinstance(ns, dict) or "tcx" not in ns:
         raise ValueError("Invalid namespace provided")
-    
+
     # Safely extract StartTime attribute with validation
     lap_start = None
     if hasattr(lap, 'attrib') and isinstance(lap.attrib, dict):
@@ -93,11 +93,11 @@ def _extract_lap_data(lap, ns):
         lap_distance = lap.find("tcx:DistanceMeters", ns)
     except (AttributeError, TypeError):
         lap_total_time = lap_distance = None
-    
+
     total_time_s = _extract_float_from_element(lap_total_time)
     distance_m = _extract_float_from_element(lap_distance)
     pace = calc_pace(total_time_s, distance_m)
-    
+
     return LapData(lap_start, total_time_s, distance_m, pace)
 
 
@@ -106,7 +106,7 @@ def _extract_trackpoint_data(tp, ns):
     # Validate namespace to prevent injection
     if not isinstance(ns, dict) or "tcx" not in ns:
         raise ValueError("Invalid namespace provided")
-        
+
     data = {
         "Time": None,
         "Latitude": None,
@@ -114,7 +114,7 @@ def _extract_trackpoint_data(tp, ns):
         "Altitude_m": None,
         "Distance_m": None,
     }
-    
+
     # Extract time with validation
     time_elem = tp.find("tcx:Time", ns)
     if time_elem is not None and hasattr(time_elem, 'text'):
@@ -122,7 +122,7 @@ def _extract_trackpoint_data(tp, ns):
         text_content = time_elem.text
         if isinstance(text_content, str):
             data["Time"] = text_content
-    
+
     # Extract position (latitude/longitude) with validation
     pos_elem = tp.find("tcx:Position", ns)
     if pos_elem is not None and hasattr(pos_elem, 'find'):
@@ -133,7 +133,7 @@ def _extract_trackpoint_data(tp, ns):
             data["Longitude"] = _extract_float_from_element(lon_elem)
         except (AttributeError, TypeError):
             data["Latitude"] = data["Longitude"] = None
-    
+
     # Extract altitude and distance with validation
     try:
         altitude_elem = tp.find("tcx:AltitudeMeters", ns)
@@ -142,7 +142,7 @@ def _extract_trackpoint_data(tp, ns):
         data["Distance_m"] = _extract_float_from_element(distance_elem)
     except (AttributeError, TypeError):
         data["Altitude_m"] = data["Distance_m"] = None
-    
+
     return data
 
 
@@ -174,7 +174,7 @@ def parse_tcx_detailed(tcx_file):
 
         for tp in lap.findall(".//tcx:Trackpoint", ns):
             trackpoint_data = _extract_trackpoint_data(tp, ns)
-            
+
             row = {
                 "LapNumber": lap_counter,
                 "LapStartTime": lap_data.start_time,
@@ -261,7 +261,7 @@ def write_to_excel(df, output_file, sheet_name):
     if not _validate_safe_path(output_file):
         logger.error(f"Invalid or unsafe output path: {sanitize_for_log(output_file)}")
         raise ValueError("Invalid output file path")
-    
+
     try:
         if not os.path.exists(output_file):
             with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
@@ -312,11 +312,11 @@ def push_to_mongo(df, collection, unique_keys):
     # Validate unique_keys to prevent injection
     if not isinstance(unique_keys, list) or not all(isinstance(k, str) for k in unique_keys):
         raise ValueError("Invalid unique_keys parameter")
-    
+
     from pymongo import ReplaceOne
     operations = []
     records = df.to_dict(orient="records")
-    
+
     for rec in records:
         # Sanitize and validate query values
         query = {}
@@ -325,15 +325,15 @@ def push_to_mongo(df, collection, unique_keys):
                 sanitized_val = _sanitize_mongo_value(rec[k])
                 if sanitized_val is not None:
                     query[k] = sanitized_val
-        
+
         # Skip if no valid query keys
         if not query:
             continue
-            
+
         # Sanitize all record values
         sanitized_rec = {k: _sanitize_mongo_value(v) for k, v in rec.items()}
         operations.append(ReplaceOne(query, sanitized_rec, upsert=True))
-    
+
     # Execute bulk operations if any
     if operations:
         collection.bulk_write(operations)
@@ -376,7 +376,7 @@ def process_file(tcx_file, args, mongo_client=None):
             logger.error("Invalid database name")
             return
         db = mongo_client[db_name]
-        
+
         for mode_name, df in dfs_to_mongo:
             # Validate collection name to prevent injection
             if not isinstance(mode_name, str) or mode_name not in ["summary", "detailed"]:
@@ -387,7 +387,7 @@ def process_file(tcx_file, args, mongo_client=None):
             # Determine unique keys for upsert based on mode with validation
             allowed_summary_keys = ["LapStartTime", "LapNumber", "LapTotalTime_s", "LapDistance_m", "Pace_min_per_km"]
             allowed_detailed_keys = ["LapStartTime", "LapNumber", "Time"]
-            
+
             if mode_name == "summary":
                 unique_keys = [k for k in allowed_summary_keys if isinstance(k, str) and k.replace('_', '').isalnum()]
             else:  # detailed
@@ -415,7 +415,7 @@ def _discover_tcx_files(input_path):
     # Determine if input is file or folder
     if os.path.isfile(input_path):
         return [input_path]
-    
+
     # Folder - get all .tcx files
     try:
         files = []
@@ -428,7 +428,7 @@ def _discover_tcx_files(input_path):
                 full_path = os.path.join(input_path, f)
                 if _validate_safe_path(full_path, input_path) and os.path.isfile(full_path):
                     files.append(full_path)
-                    
+
         if not files:
             print(f"No .tcx files found in folder '{input_path}'.")
             return []
@@ -441,7 +441,7 @@ def _setup_mongo_connection(args):
     """Setup MongoDB connection if requested"""
     if not args.mongo:
         return None
-        
+
     try:
         mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
         # Trigger a server selection to verify connection
@@ -502,7 +502,7 @@ def main():
         if not _validate_safe_path(args.input_path):
             print(f"Invalid or unsafe input path: '{args.input_path}'")
             return
-            
+
         files = _discover_tcx_files(args.input_path)
         if not files:
             return
