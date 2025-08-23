@@ -32,10 +32,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-test.txt
     
-    - name: Run trainparser tests
+    - name: Run unified tests
       run: |
-        python -m pytest src/test/test_trainparser.py -v
-    
-    - name: Run webapp tests
-      run: |
-        cd webapp && python -m pytest test/test_app.py -v
+        python run_github_tests.py

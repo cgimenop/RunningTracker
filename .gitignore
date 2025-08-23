@@ -32,6 +32,7 @@ MANIFEST
 
 # Virtual environments
 venv/
+venv-*/
 env/
 ENV/
 
@@ -58,9 +59,11 @@ data
 # Output files
 output/
 *.xlsx
+config/
 
 # Coverage reports
 htmlcov/
 .coverage
+.coverage.*
 coverage.xml
 .pytest_cache/

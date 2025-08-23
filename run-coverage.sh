@@ -14,10 +14,10 @@ source venv-test/bin/activate
 # Install dependencies
 pip install -r requirements-test.txt
 
-echo "Running test coverage analysis..."
+echo "Running unified test suite with coverage..."
 
-# Run tests with coverage
-python -m pytest --cov=src --cov=webapp --cov-report=term-missing --cov-report=html --cov-branch src/test/tests.py webapp/test/test_app.py
+# Run unified tests with coverage
+python -m pytest
 
 echo "Coverage report generated in htmlcov/ directory"
 echo "Open htmlcov/index.html in browser to view detailed report"
