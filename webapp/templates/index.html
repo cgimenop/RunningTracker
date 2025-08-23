@@ -21,7 +21,7 @@
     {%- endmacro %}
 
     <h1>Run Train Summary</h1>
-    
+
     <div class="container">
         <div class="left-column">
             <div class="section">
@@ -35,7 +35,7 @@
                         {% set laps = file_valid_laps[file.source] %}
                         {% set fastest = laps | min(attribute='LapTotalTime_s') %}
                         {% set slowest = laps | max(attribute='LapTotalTime_s') %}
-                        
+
                         <div class="section">
                             <div class="section-header" onclick="toggleSection(this)" {% if loop.first %}data-open="true"{% endif %}>
                                 <span>{{ file.date }}</span>
@@ -90,12 +90,10 @@
                     <span class="toggle-icon">▼</span>
                 </div>
                 <div class="section-content">
-                    {% for source, details in detailed.items()|sort(reverse=true) %}
-                        {% set date_match = source | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
-                        
-                        <div class="section" id="detail-{{ date_match.group(1) if date_match else source }}">
+                    {% for date, details in detailed.items()|sort(reverse=true) %}
+                        <div class="section" id="detail-{{ date|replace('-', '') }}">
                             <div class="section-header" onclick="toggleSection(this)">
-                                <span>{{ date_match.group(1) if date_match else source }}</span>
+                                <span>{{ date }}</span>
                                 <span class="toggle-icon">▼</span>
                             </div>
                             <div class="section-content">
@@ -224,7 +222,7 @@
         function toggleSection(header) {
             const content = header.nextElementSibling;
             const icon = header.querySelector('.toggle-icon');
-            
+
             if (content.style.display === 'none' || content.style.display === '') {
                 content.style.display = 'block';
                 icon.textContent = '▼';
@@ -235,31 +233,28 @@
                 header.classList.add('collapsed');
             }
         }
-        
+
         function openDetailSection(date) {
-            // First, find and open the main Detailed Data section
-            const detailedDataHeaders = document.querySelectorAll('.section-header');
-            let detailedDataSection = null;
-            
-            for (let header of detailedDataHeaders) {
-                if (header.querySelector('span').textContent.trim() === 'Detailed Data') {
-                    detailedDataSection = header;
-                    break;
-                }
+            // Open main Detailed Data section
+            const detailedDataSection = Array.from(document.querySelectorAll('.section-header')).find(h =>
+                h.querySelector('span').textContent.trim() === 'Detailed Data'
+            );
+
+            if (detailedDataSection) {
+                const mainContent = detailedDataSection.nextElementSibling;
+                mainContent.style.display = 'block';
+                detailedDataSection.querySelector('.toggle-icon').textContent = '▼';
+                detailedDataSection.classList.remove('collapsed');
             }
-            
-            if (detailedDataSection && (detailedDataSection.nextElementSibling.style.display === 'none' || detailedDataSection.nextElementSibling.style.display === '')) {
-                toggleSection(detailedDataSection);
-            }
-            
-            // Then find and open the specific date section
-            const targetSection = document.getElementById('detail-' + date);
+
+            // Open specific date section
+            const targetSection = document.getElementById('detail-' + date.replace(/-/g, ''));
             if (targetSection) {
                 const header = targetSection.querySelector('.section-header');
-                if (header.nextElementSibling.style.display === 'none' || header.nextElementSibling.style.display === '') {
-                    toggleSection(header);
-                }
-                // Scroll to the section
+                const content = header.nextElementSibling;
+                content.style.display = 'block';
+                header.querySelector('.toggle-icon').textContent = '▼';
+                header.classList.remove('collapsed');
                 targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }

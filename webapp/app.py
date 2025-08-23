@@ -76,11 +76,11 @@ def regex_search(s, pattern):
         'time': r'([0-9]{2}:[0-9]{2}:[0-9]{2})',
         'number': r'([0-9]+\.?[0-9]*)',
     }
-    
+
     # Validate input string
     if not isinstance(s, str):
         return None
-        
+
     if pattern in safe_patterns:
         return re.search(safe_patterns[pattern], s)
     else:
@@ -144,13 +144,13 @@ def _calculate_lap_altitude_delta(lap, source_detailed):
     lap_num = lap.get(COL_LAP_NUMBER)
     if lap_num is None:
         return 0
-        
-    lap_points = [p for p in source_detailed 
+
+    lap_points = [p for p in source_detailed
                   if p.get(COL_LAP_NUMBER) == lap_num and p.get(COL_ALTITUDE_M) is not None]
-    
+
     if not lap_points:
         return 0
-        
+
     try:
         altitudes = [float(p[COL_ALTITUDE_M]) for p in lap_points]
         return sum(altitudes[i] - altitudes[i-1] for i in range(1, len(altitudes)))
@@ -165,15 +165,15 @@ def _calculate_altitude_deltas(grouped, db):
     projection = {COL_ID: 0}
     all_detailed = list(db[COLLECTION_DETAILED].find(query, projection).sort(COL_TIME, 1))
     detailed_by_source = defaultdict(list)
-    
+
     # Group detailed data by source
     for row in all_detailed:
         source = row.get(COL_SOURCE_FILE, "Unknown")
         detailed_by_source[source].append(row)
-    
+
     for source, laps in grouped.items():
         source_detailed = detailed_by_source.get(source, [])
-        
+
         for lap in laps:
             lap[COL_ALTITUDE_DELTA_M] = _calculate_lap_altitude_delta(lap, source_detailed)
             lap[COL_ALTITUDE_DELTA_FORMATTED] = format_altitude(lap[COL_ALTITUDE_DELTA_M])
@@ -237,7 +237,7 @@ def calculate_file_summaries(grouped):
 
 def find_records(all_laps, file_summaries):
     valid_laps = [lap for lap in all_laps if _is_valid_lap(lap)]
-    
+
     try:
         fastest_lap = min((lap for lap in valid_laps if lap.get(COL_LAP_TOTAL_TIME_S) is not None), key=lambda x: float(x[COL_LAP_TOTAL_TIME_S]), default=None)
         slowest_lap = max((lap for lap in valid_laps if lap.get(COL_LAP_TOTAL_TIME_S) is not None), key=lambda x: float(x[COL_LAP_TOTAL_TIME_S]), default=None)
@@ -248,7 +248,7 @@ def find_records(all_laps, file_summaries):
         longest_time_file = max(file_summaries, key=lambda x: x[FIELD_TOTAL_TIME], default=None)
     except (ValueError, TypeError):
         longest_distance_file = longest_time_file = None
-    
+
     return fastest_lap, slowest_lap, longest_distance_file, longest_time_file
 
 def _calculate_merge_info(filtered_data, i):
@@ -258,7 +258,7 @@ def _calculate_merge_info(filtered_data, i):
         if col in filtered_data[i]:
             # Check if this is the first occurrence of this value
             is_first = i == 0 or (i > 0 and filtered_data[i-1].get(col) != filtered_data[i][col])
-            
+
             if is_first:
                 # Count consecutive rows with same value
                 rowspan = 1
@@ -276,7 +276,7 @@ def _filter_data_by_interval(source_data):
     """Filter data to show every N seconds"""
     filtered_data = []
     last_time = None
-    
+
     for i, row in enumerate(source_data):
         # Always include first row
         if i == 0:
@@ -286,7 +286,7 @@ def _filter_data_by_interval(source_data):
         elif i - last_time >= DETAILED_DATA_SAMPLE_INTERVAL:
             filtered_data.append(row)
             last_time = i
-    
+
     return filtered_data
 
 def load_detailed_data():
@@ -296,19 +296,19 @@ def load_detailed_data():
     projection = {COL_ID: 0}
     detailed_data = list(db[COLLECTION_DETAILED].find(query, projection).sort(COL_TIME, 1))
     detailed_grouped = defaultdict(list)
-    
+
     # Optimize: Group data by source more efficiently
     data_by_source = defaultdict(list)
     for row in detailed_data:
         source = row.get(COL_SOURCE_FILE, "Unknown")
         data_by_source[source].append(row)
-    
+
     for source, source_data in data_by_source.items():
-        
+        source_date = extract_date_from_filename(source)
         filtered_data = _filter_data_by_interval(source_data)
-        
+
         # Format fields and add cell merging info
-        
+
         for i, row in enumerate(filtered_data):
             # Format fields
             if COL_LAP_DISTANCE_M in row and row[COL_LAP_DISTANCE_M] is not None:
@@ -319,7 +319,7 @@ def load_detailed_data():
                 row[COL_ALTITUDE_FORMATTED] = format_altitude(row[COL_ALTITUDE_M])
             if COL_LAP_TOTAL_TIME_S in row and row[COL_LAP_TOTAL_TIME_S] is not None:
                 row[COL_LAP_TOTAL_TIME_FORMATTED] = format_seconds(row[COL_LAP_TOTAL_TIME_S])
-            
+
             # Calculate altitude delta from previous sample
             if i == 0:
                 row[COL_ALTITUDE_DELTA_M] = 0  # First sample has no delta
@@ -331,11 +331,11 @@ def load_detailed_data():
                 except (ValueError, TypeError):
                     row[COL_ALTITUDE_DELTA_M] = 0
             row[COL_ALTITUDE_DELTA_FORMATTED] = format_altitude(row[COL_ALTITUDE_DELTA_M])
-            
+
             row[FIELD_MERGE_INFO] = _calculate_merge_info(filtered_data, i)
-        
-        detailed_grouped[source] = filtered_data
-    
+
+        detailed_grouped[source_date] = filtered_data
+
     return detailed_grouped
 
 @app.route("/")
@@ -354,7 +354,7 @@ def index():
         file_summaries, file_all_laps, file_valid_laps = [], {}, {}
         fastest_lap = slowest_lap = longest_distance_file = longest_time_file = None
         detailed_grouped = defaultdict(list)
-    
+
     return render_template(
         "index.html",
         grouped=grouped,
