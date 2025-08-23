@@ -169,7 +169,7 @@
                         </td>
                         <td>
                             {% if fastest_lap %}
-                                {% set date_match = fastest_lap._source_file | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
+                                {% set date_match = fastest_lap._source_file | regex_search('date') %}
                                 {{ date_match.group(1) if date_match else fastest_lap._source_file }}
                             {% else %}-{% endif %}
                         </td>
@@ -183,7 +183,7 @@
                         </td>
                         <td>
                             {% if slowest_lap %}
-                                {% set date_match = slowest_lap._source_file | regex_search('([0-9]{4}-[0-9]{2}-[0-9]{2})') %}
+                                {% set date_match = slowest_lap._source_file | regex_search('date') %}
                                 {{ date_match.group(1) if date_match else slowest_lap._source_file }}
                             {% else %}-{% endif %}
                         </td>
