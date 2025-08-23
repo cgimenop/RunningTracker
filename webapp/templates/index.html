@@ -90,10 +90,10 @@
                     <span class="toggle-icon">▼</span>
                 </div>
                 <div class="section-content">
-                    {% for source, details in detailed.items()|sort(reverse=true) %}
-                        <div class="section" id="detail-{{ display_date }}">
+                    {% for date, details in detailed.items()|sort(reverse=true) %}
+                        <div class="section" id="detail-{{ date|replace('-', '') }}">
                             <div class="section-header" onclick="toggleSection(this)">
-                                <span>{{ source }}</span>
+                                <span>{{ date }}</span>
                                 <span class="toggle-icon">▼</span>
                             </div>
                             <div class="section-content">
@@ -248,7 +248,7 @@
             }
 
             // Open specific date section
-            const targetSection = document.getElementById('detail-' + date);
+            const targetSection = document.getElementById('detail-' + date.replace(/-/g, ''));
             if (targetSection) {
                 const header = targetSection.querySelector('.section-header');
                 const content = header.nextElementSibling;
