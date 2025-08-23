@@ -6,10 +6,50 @@ import logging
 from openpyxl import load_workbook
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
+from pathlib import Path
+from collections import namedtuple
 
 # Configure logging
 from logging_config import setup_logging
 logger = setup_logging()
+
+# Define namedtuple for lap data to avoid multiple return values
+LapData = namedtuple('LapData', ['start_time', 'total_time_s', 'distance_m', 'pace'])
+
+
+
+def sanitize_for_log(value):
+    """Sanitize input for logging to prevent log injection attacks"""
+    if value is None:
+        return "None"
+    # Convert to string and remove/replace dangerous characters
+    sanitized = str(value).replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+    # Remove other control characters that could be used for injection
+    sanitized = ''.join(char for char in sanitized if ord(char) >= 32 or char in '\t\n\r')
+    # Limit length to prevent log flooding
+    return sanitized[:200] + '...' if len(sanitized) > 200 else sanitized
+
+def _validate_safe_path(file_path, base_path=None):
+    """Validate file path to prevent path traversal attacks"""
+    try:
+        # Convert to Path object and resolve
+        path = Path(file_path).resolve()
+
+        # If base_path provided, ensure file is within base directory
+        if base_path:
+            base = Path(base_path).resolve()
+            try:
+                path.relative_to(base)
+            except ValueError:
+                return False
+
+        # Check for path traversal after resolution
+        if '..' in str(path) or not path.is_absolute():
+            return False
+
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def calc_pace(total_time_s, distance_m):
@@ -17,26 +57,112 @@ def calc_pace(total_time_s, distance_m):
         time_val = float(total_time_s) if total_time_s is not None else 0
         dist_val = float(distance_m) if distance_m is not None else 0
         if time_val > 0 and dist_val > 0:
-            return (time_val / (dist_val / 1000.0)) / 60.0
+            return (time_val / (dist_val / 1000.0)) * 60.0
     except (ValueError, TypeError):
-        logger.debug(f"Invalid pace calculation inputs: time={total_time_s}, distance={distance_m}")
+        logger.debug(f"Invalid pace calculation inputs: time={sanitize_for_log(total_time_s)}, distance={sanitize_for_log(distance_m)}")
+
     return None
+
+
+def _extract_float_from_element(element):
+    """Extract float value from XML element with error handling"""
+    if element is not None and element.text:
+        try:
+            return float(element.text)
+        except ValueError:
+            pass
+    return None
+
+
+def _extract_lap_data(lap, ns):
+    """Extract lap-level data from XML lap element"""
+    # Validate namespace to prevent injection
+    if not isinstance(ns, dict) or "tcx" not in ns:
+        raise ValueError("Invalid namespace provided")
+
+    # Safely extract StartTime attribute with validation
+    lap_start = None
+    if hasattr(lap, 'attrib') and isinstance(lap.attrib, dict):
+        lap_start = lap.attrib.get("StartTime")
+        # Validate the StartTime format to prevent injection
+        if lap_start and not isinstance(lap_start, str):
+            lap_start = None
+    # Safely find XML elements with validation
+    try:
+        lap_total_time = lap.find("tcx:TotalTimeSeconds", ns)
+        lap_distance = lap.find("tcx:DistanceMeters", ns)
+    except (AttributeError, TypeError):
+        lap_total_time = lap_distance = None
+
+    total_time_s = _extract_float_from_element(lap_total_time)
+    distance_m = _extract_float_from_element(lap_distance)
+    pace = calc_pace(total_time_s, distance_m)
+
+    return LapData(lap_start, total_time_s, distance_m, pace)
+
+
+def _extract_trackpoint_data(tp, ns):
+    """Extract trackpoint-level data from XML trackpoint element"""
+    # Validate namespace to prevent injection
+    if not isinstance(ns, dict) or "tcx" not in ns:
+        raise ValueError("Invalid namespace provided")
+
+    data = {
+        "Time": None,
+        "Latitude": None,
+        "Longitude": None,
+        "Altitude_m": None,
+        "Distance_m": None,
+    }
+
+    # Extract time with validation
+    time_elem = tp.find("tcx:Time", ns)
+    if time_elem is not None and hasattr(time_elem, 'text'):
+        # Validate text content to prevent injection
+        text_content = time_elem.text
+        if isinstance(text_content, str):
+            data["Time"] = text_content
+
+    # Extract position (latitude/longitude) with validation
+    pos_elem = tp.find("tcx:Position", ns)
+    if pos_elem is not None and hasattr(pos_elem, 'find'):
+        try:
+            lat_elem = pos_elem.find("tcx:LatitudeDegrees", ns)
+            lon_elem = pos_elem.find("tcx:LongitudeDegrees", ns)
+            data["Latitude"] = _extract_float_from_element(lat_elem)
+            data["Longitude"] = _extract_float_from_element(lon_elem)
+        except (AttributeError, TypeError):
+            data["Latitude"] = data["Longitude"] = None
+
+    # Extract altitude and distance with validation
+    try:
+        altitude_elem = tp.find("tcx:AltitudeMeters", ns)
+        distance_elem = tp.find("tcx:DistanceMeters", ns)
+        data["Altitude_m"] = _extract_float_from_element(altitude_elem)
+        data["Distance_m"] = _extract_float_from_element(distance_elem)
+    except (AttributeError, TypeError):
+        data["Altitude_m"] = data["Distance_m"] = None
+
+    return data
 
 
 def parse_tcx_detailed(tcx_file):
     try:
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+        # Validate namespace
+        if not isinstance(ns, dict) or "tcx" not in ns:
+            raise ValueError("Invalid namespace configuration")
         tree = ET.parse(tcx_file)
         root = tree.getroot()
-        logger.info(f"Successfully parsed TCX file for detailed analysis: {tcx_file}")
+        logger.info(f"Successfully parsed TCX file for detailed analysis: {sanitize_for_log(tcx_file)}")
     except ET.ParseError as e:
-        logger.error(f"XML parsing error in {tcx_file}: {e}")
+        logger.error(f"XML parsing error in {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise ValueError(f"Invalid XML file: {e}")
     except FileNotFoundError as e:
-        logger.error(f"TCX file not found: {tcx_file}")
+        logger.error(f"TCX file not found: {sanitize_for_log(tcx_file)}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error parsing {tcx_file}: {e}")
+        logger.error(f"Unexpected error parsing {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise
 
     rows = []
@@ -44,114 +170,64 @@ def parse_tcx_detailed(tcx_file):
 
     for lap in root.findall(".//tcx:Lap", ns):
         lap_counter += 1
-
-        lap_start = lap.attrib.get("StartTime")
-        # amazonq-ignore-next-line
-        lap_total_time = lap.find("tcx:TotalTimeSeconds", ns)
-        # amazonq-ignore-next-line
-        lap_distance = lap.find("tcx:DistanceMeters", ns)
-
-        try:
-            total_time_s = float(lap_total_time.text) if lap_total_time is not None and lap_total_time.text else None
-            distance_m = float(lap_distance.text) if lap_distance is not None and lap_distance.text else None
-        except ValueError:
-            total_time_s = distance_m = None
-        pace = calc_pace(total_time_s, distance_m)
+        lap_data = _extract_lap_data(lap, ns)
 
         for tp in lap.findall(".//tcx:Trackpoint", ns):
+            trackpoint_data = _extract_trackpoint_data(tp, ns)
+
             row = {
                 "LapNumber": lap_counter,
-                "LapStartTime": lap_start,
-                "LapTotalTime_s": total_time_s,
-                "LapDistance_m": distance_m,
-                "Pace_min_per_km": pace,
-                "Time": None,
-                "Latitude": None,
-                "Longitude": None,
-                "Altitude_m": None,
-                "Distance_m": None,
+                "LapStartTime": lap_data.start_time,
+                "LapTotalTime_s": lap_data.total_time_s,
+                "LapDistance_m": lap_data.distance_m,
+                "Pace_min_per_km": lap_data.pace,
+                **trackpoint_data
             }
-
-            # amazonq-ignore-next-line
-            time_elem = tp.find("tcx:Time", ns)
-            if time_elem is not None:
-                row["Time"] = time_elem.text
-
-            # amazonq-ignore-next-line
-            pos_elem = tp.find("tcx:Position", ns)
-            if pos_elem is not None:
-                # amazonq-ignore-next-line
-                lat_elem = pos_elem.find("tcx:LatitudeDegrees", ns)
-                # amazonq-ignore-next-line
-                lon_elem = pos_elem.find("tcx:LongitudeDegrees", ns)
-                try:
-                    row["Latitude"] = float(lat_elem.text) if lat_elem is not None and lat_elem.text else None
-                    row["Longitude"] = float(lon_elem.text) if lon_elem is not None and lon_elem.text else None
-                except ValueError:
-                    row["Latitude"] = row["Longitude"] = None
-
-            # amazonq-ignore-next-line
-            alt_elem = tp.find("tcx:AltitudeMeters", ns)
-            if alt_elem is not None and alt_elem.text:
-                try:
-                    row["Altitude_m"] = float(alt_elem.text)
-                except ValueError:
-                    row["Altitude_m"] = None
-
-            # amazonq-ignore-next-line
-            dist_elem = tp.find("tcx:DistanceMeters", ns)
-            if dist_elem is not None and dist_elem.text:
-                try:
-                    row["Distance_m"] = float(dist_elem.text)
-                except ValueError:
-                    row["Distance_m"] = None
-
             rows.append(row)
 
     return pd.DataFrame(rows)
 
 
-def parse_tcx_summary(tcx_file):
+def _parse_tcx_file(tcx_file, operation="analysis"):
+    """Common XML parsing logic for TCX files"""
     try:
+        # Validate file path to prevent path traversal
+        if not _validate_safe_path(tcx_file):
+            raise ValueError(f"Invalid or unsafe file path: {tcx_file}")
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+        # Validate namespace
+        if not isinstance(ns, dict) or "tcx" not in ns:
+            raise ValueError("Invalid namespace configuration")
         tree = ET.parse(tcx_file)
         root = tree.getroot()
-        logger.info(f"Successfully parsed TCX file for summary analysis: {tcx_file}")
+        logger.info(f"Successfully parsed TCX file for {sanitize_for_log(operation)}: {sanitize_for_log(tcx_file)}")
+        return root, ns
     except ET.ParseError as e:
-        logger.error(f"XML parsing error in {tcx_file}: {e}")
+        logger.error(f"XML parsing error in {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise ValueError(f"Invalid XML file: {e}")
     except FileNotFoundError as e:
-        logger.error(f"TCX file not found: {tcx_file}")
+        logger.error(f"TCX file not found: {sanitize_for_log(tcx_file)}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error parsing {tcx_file}: {e}")
+        logger.error(f"Unexpected error parsing {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
         raise
+
+def parse_tcx_summary(tcx_file):
+    root, ns = _parse_tcx_file(tcx_file, "summary analysis")
 
     rows = []
     lap_counter = 0
 
     for lap in root.findall(".//tcx:Lap", ns):
         lap_counter += 1
-
-        lap_start = lap.attrib.get("StartTime")
-        # amazonq-ignore-next-line
-        lap_total_time = lap.find("tcx:TotalTimeSeconds", ns)
-        # amazonq-ignore-next-line
-        lap_distance = lap.find("tcx:DistanceMeters", ns)
-
-        try:
-            total_time_s = float(lap_total_time.text) if lap_total_time is not None and lap_total_time.text else None
-            distance_m = float(lap_distance.text) if lap_distance is not None and lap_distance.text else None
-        except ValueError:
-            total_time_s = distance_m = None
-        pace = calc_pace(total_time_s, distance_m)
+        lap_data = _extract_lap_data(lap, ns)
 
         rows.append({
             "LapNumber": lap_counter,
-            "LapStartTime": lap_start,
-            "LapTotalTime_s": total_time_s,
-            "LapDistance_m": distance_m,
-            "Pace_min_per_km": pace,
+            "LapStartTime": lap_data.start_time,
+            "LapTotalTime_s": lap_data.total_time_s,
+            "LapDistance_m": lap_data.distance_m,
+            "Pace_min_per_km": lap_data.pace,
         })
 
     return pd.DataFrame(rows)
@@ -159,29 +235,38 @@ def parse_tcx_summary(tcx_file):
 
 def get_first_lap_date(tcx_file):
     try:
-        ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
-        tree = ET.parse(tcx_file)
-        root = tree.getroot()
-        # amazonq-ignore-next-line
+        root, ns = _parse_tcx_file(tcx_file, "date extraction")
         first_lap = root.find(".//tcx:Lap", ns)
         if first_lap is not None and "StartTime" in first_lap.attrib:
-            date = first_lap.attrib["StartTime"].split("T")[0]
-            logger.debug(f"Extracted date {date} from {tcx_file}")
-            return date
-        logger.warning(f"No lap with StartTime found in {tcx_file}")
+            start_time = first_lap.attrib["StartTime"]
+            # Safely split timestamp to extract date
+            if "T" in start_time:
+                date = start_time.split("T")[0]
+                logger.debug(f"Extracted date {sanitize_for_log(date)} from {sanitize_for_log(tcx_file)}")
+                return date
+            else:
+                logger.warning(f"Invalid timestamp format in {sanitize_for_log(tcx_file)}: {sanitize_for_log(start_time)}")
+        else:
+            logger.warning(f"No lap with StartTime found in {sanitize_for_log(tcx_file)}")
     except ET.ParseError as e:
-        logger.error(f"XML parsing error while extracting date from {tcx_file}: {e}")
+        logger.error(f"XML parsing error while extracting date from {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
     except Exception as e:
-        logger.error(f"Unexpected error extracting date from {tcx_file}: {e}")
+        logger.error(f"Unexpected error extracting date from {sanitize_for_log(tcx_file)}: {sanitize_for_log(e)}")
+
     return "UnknownDate"
 
 
 def write_to_excel(df, output_file, sheet_name):
+    # Validate output file path to prevent path traversal
+    if not _validate_safe_path(output_file):
+        logger.error(f"Invalid or unsafe output path: {sanitize_for_log(output_file)}")
+        raise ValueError("Invalid output file path")
+
     try:
         if not os.path.exists(output_file):
             with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
-            logger.info(f"Created new Excel file: {output_file} with sheet: {sheet_name}")
+            logger.info(f"Created new Excel file: {sanitize_for_log(output_file)} with sheet: {sanitize_for_log(sheet_name)}")
         else:
             book = load_workbook(output_file)
             existing_sheets = book.sheetnames
@@ -196,33 +281,66 @@ def write_to_excel(df, output_file, sheet_name):
             if match_sheet:
                 del book[match_sheet]
                 book.save(output_file)  # Save immediately after deletion!
-                logger.info(f"Replaced existing sheet: {match_sheet} in {output_file}")
+                logger.info(f"Replaced existing sheet: {sanitize_for_log(match_sheet)} in {sanitize_for_log(output_file)}")
 
             with pd.ExcelWriter(output_file, mode="a", engine="openpyxl") as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
-            logger.info(f"Added sheet: {sheet_name} to existing file: {output_file}")
+            logger.info(f"Added sheet: {sanitize_for_log(sheet_name)} to existing file: {sanitize_for_log(output_file)}")
     except PermissionError as e:
-        logger.error(f"Permission denied writing to Excel file {output_file}: {e}")
+        logger.error(f"Permission denied writing to Excel file {sanitize_for_log(output_file)}: {sanitize_for_log(e)}")
         raise
     except Exception as e:
-        logger.error(f"Error writing to Excel file {output_file}: {e}")
+        logger.error(f"Error writing to Excel file {sanitize_for_log(output_file)}: {sanitize_for_log(e)}")
         raise
 
+
+def _sanitize_mongo_value(value):
+    """Sanitize values for MongoDB queries to prevent NoSQL injection"""
+    if value is None:
+        return None
+    # Only allow basic data types, reject complex objects that could contain operators
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    # Convert other types to string to prevent injection
+    return str(value)
 
 def push_to_mongo(df, collection, unique_keys):
     """
-    Upsert each row in df to the mongo collection.
+    Upsert each row in df to the mongo collection using bulk operations.
     unique_keys: list of column names for the unique query filter.
     """
+    # Validate unique_keys to prevent injection
+    if not isinstance(unique_keys, list) or not all(isinstance(k, str) for k in unique_keys):
+        raise ValueError("Invalid unique_keys parameter")
+
+    from pymongo import ReplaceOne
+    operations = []
     records = df.to_dict(orient="records")
+
     for rec in records:
-        query = {k: rec.get(k) for k in unique_keys}
-        # amazonq-ignore-next-line
-        collection.replace_one(query, rec, upsert=True)
+        # Sanitize and validate query values
+        query = {}
+        for k in unique_keys:
+            if k in rec and rec[k] is not None:
+                sanitized_val = _sanitize_mongo_value(rec[k])
+                if sanitized_val is not None:
+                    query[k] = sanitized_val
+
+        # Skip if no valid query keys
+        if not query:
+            continue
+
+        # Sanitize all record values
+        sanitized_rec = {k: _sanitize_mongo_value(v) for k, v in rec.items()}
+        operations.append(ReplaceOne(query, sanitized_rec, upsert=True))
+
+    # Execute bulk operations if any
+    if operations:
+        collection.bulk_write(operations)
 
 
 def process_file(tcx_file, args, mongo_client=None):
-    logger.info(f"Starting processing of file: {tcx_file}")
+    logger.info(f"Starting processing of file: {sanitize_for_log(tcx_file)}")
     print(f"Processing {tcx_file}")
 
     date_str = get_first_lap_date(tcx_file)
@@ -252,35 +370,93 @@ def process_file(tcx_file, args, mongo_client=None):
 
     # Push to MongoDB
     if mongo_client:
-        db = mongo_client["RunningTracker"]
+        # Validate database name to prevent injection
+        db_name = "RunningTracker"
+        if not isinstance(db_name, str) or not db_name.isalnum():
+            logger.error("Invalid database name")
+            return
+        db = mongo_client[db_name]
+
         for mode_name, df in dfs_to_mongo:
+            # Validate collection name to prevent injection
+            if not isinstance(mode_name, str) or mode_name not in ["summary", "detailed"]:
+                logger.error(f"Invalid collection name: {sanitize_for_log(mode_name)}")
+                continue
             collection = db[mode_name]
 
-            # Determine unique keys for upsert based on mode
+            # Determine unique keys for upsert based on mode with validation
+            allowed_summary_keys = ["LapStartTime", "LapNumber", "LapTotalTime_s", "LapDistance_m", "Pace_min_per_km"]
+            allowed_detailed_keys = ["LapStartTime", "LapNumber", "Time"]
+
             if mode_name == "summary":
-                unique_keys = ["LapStartTime", "LapNumber", "LapTotalTime_s", "LapDistance_m", "Pace_min_per_km"]
+                unique_keys = [k for k in allowed_summary_keys if isinstance(k, str) and k.replace('_', '').isalnum()]
             else:  # detailed
-                unique_keys = ["LapStartTime", "LapNumber", "Time"]
+                unique_keys = [k for k in allowed_detailed_keys if isinstance(k, str) and k.replace('_', '').isalnum()]
 
             # Add filename to each record for uniqueness and traceability
             filename = os.path.basename(tcx_file)
-            if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+            if not _validate_safe_path(filename):
                 filename = 'sanitized_file.tcx'
-            df["_source_file"] = filename
+            # Validate filename to prevent injection
+            if not isinstance(filename, str) or len(filename) > 255:
+                filename = 'invalid_file.tcx'
+            # Sanitize filename for MongoDB
+            safe_filename = _sanitize_mongo_value(filename)
+            df["_source_file"] = safe_filename
 
-            # Convert DataFrame to dicts with updated keys
-            records = df.to_dict(orient="records")
-
-            for rec in records:
-                # Compose the filter query only with keys present in rec
-                query = {k: rec.get(k) for k in unique_keys if rec.get(k) is not None}
-                # Include source file in query to avoid conflicts across files
-                query["_source_file"] = rec["_source_file"]
-                # amazonq-ignore-next-line
-                collection.replace_one(query, rec, upsert=True)
+            # Use bulk operations for better performance
+            push_to_mongo(df, collection, unique_keys + ["_source_file"])
 
         print("✅ Data pushed to MongoDB")
 
+
+def _discover_tcx_files(input_path):
+    """Discover TCX files from input path"""
+    # Determine if input is file or folder
+    if os.path.isfile(input_path):
+        return [input_path]
+
+    # Folder - get all .tcx files
+    try:
+        files = []
+        for f in os.listdir(input_path):
+            if f.lower().endswith(".tcx"):
+                # Validate filename to prevent path traversal
+                if not _validate_safe_path(f) or '..' in f or '/' in f or '\\' in f:
+                    logger.warning(f"Skipping unsafe filename: {sanitize_for_log(f)}")
+                    continue
+                full_path = os.path.join(input_path, f)
+                if _validate_safe_path(full_path, input_path) and os.path.isfile(full_path):
+                    files.append(full_path)
+
+        if not files:
+            print(f"No .tcx files found in folder '{input_path}'.")
+            return []
+        return files
+    except (PermissionError, OSError) as e:
+        logger.error(f"Directory access error: {sanitize_for_log(input_path)} - {sanitize_for_log(e)}")
+        return []
+
+def _setup_mongo_connection(args):
+    """Setup MongoDB connection if requested"""
+    if not args.mongo:
+        return None
+
+    try:
+        mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
+        # Trigger a server selection to verify connection
+        mongo_client.server_info()
+        logger.info(f"Successfully connected to MongoDB at {sanitize_for_log(args.mongo_uri)}")
+        print("Connected to MongoDB")
+        return mongo_client
+    except ServerSelectionTimeoutError as e:
+        logger.error(f"MongoDB connection timeout: {sanitize_for_log(args.mongo_uri)} - {sanitize_for_log(e)}")
+        print("ERROR: Could not connect to MongoDB. Please check your connection.")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected MongoDB connection error: {sanitize_for_log(e)}")
+        print(f"ERROR: MongoDB connection failed: {e}")
+        return None
 
 def main():
     parser = argparse.ArgumentParser(
@@ -317,44 +493,19 @@ def main():
         print(f"Input path '{args.input_path}' does not exist.")
         return
 
-    # Setup MongoDB client if requested
-    mongo_client = None
-    if args.mongo:
-        try:
-            # amazonq-ignore-next-line
-            mongo_client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=5000)
-            # Trigger a server selection to verify connection
-            mongo_client.server_info()
-            logger.info(f"Successfully connected to MongoDB at {args.mongo_uri}")
-            print("Connected to MongoDB")
-        except ServerSelectionTimeoutError as e:
-            logger.error(f"MongoDB connection timeout: {args.mongo_uri} - {e}")
-            print("ERROR: Could not connect to MongoDB. Please check your connection.")
-            return
-        except Exception as e:
-            logger.error(f"Unexpected MongoDB connection error: {e}")
-            print(f"ERROR: MongoDB connection failed: {e}")
-            return
+    mongo_client = _setup_mongo_connection(args)
+    if args.mongo and mongo_client is None:
+        return
 
     try:
-        # Determine if input is file or folder
-        if os.path.isfile(args.input_path):
-            files = [args.input_path]
-        else:
-            # Folder - get all .tcx files
-            try:
-                files = [
-                    os.path.join(args.input_path, f)
-                    for f in os.listdir(args.input_path)
-                    if f.lower().endswith(".tcx") and os.path.isfile(os.path.join(args.input_path, f))
-                ]
-                if not files:
-                    print(f"No .tcx files found in folder '{args.input_path}'.")
-                    return
-            except (PermissionError, OSError) as e:
-                logger.error(f"Directory access error: {args.input_path} - {e}")
-                print(f"ERROR: Cannot access directory '{args.input_path}': {e}")
-                return
+        # Validate input path to prevent path traversal
+        if not _validate_safe_path(args.input_path):
+            print(f"Invalid or unsafe input path: '{args.input_path}'")
+            return
+
+        files = _discover_tcx_files(args.input_path)
+        if not files:
+            return
 
         for f in files:
             process_file(f, args, mongo_client)

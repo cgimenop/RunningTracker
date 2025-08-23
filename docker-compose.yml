@@ -8,6 +8,12 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
   trainparser:
     build:
@@ -15,8 +21,10 @@ services:
       dockerfile: runningtracker.dockerfile
     image: trainparser:latest
     container_name: trainparser
+    restart: on-failure
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     volumes:
       - ./data:/data:ro       # Input TCX folder (read-only)
       - ./output:/output           # Excel output folder
@@ -42,8 +50,6 @@ services:
       - MONGO_URI=mongodb://mongodb:27017
     volumes:
       - ./webapp:/app  # Mount source for live reload
-
-
 
 volumes:
   mongo_data:
